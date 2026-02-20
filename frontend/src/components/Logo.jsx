@@ -62,7 +62,7 @@ export default function Logo({ className = 'h-24' }) {
                     <path
                         className="logo-text-color logo-folhinha"
                         d="M 145,5 C 145,5 155,15 155,25 C 155,35 145,45 145,45 C 145,45 135,35 135,25 C 135,15 145,5 145,5 Z"
-                        transform="translate(-85, -95) scale(0.9)"
+                        transform="translate(-80, -130) scale(0.9)"
                     />
                 </g>
 
