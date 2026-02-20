@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /checkout
+Disallow: /minha-conta
+Disallow: /carrinho
+
+# Sitemap
+Sitemap: https://dimoda-intima.vercel.app/sitemap.xml

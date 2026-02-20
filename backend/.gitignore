@@ -1,0 +1,30 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Dependency directories
+node_modules/
+
+# Build output
+.vercel/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Database - NÃO inclua no git para produção
+database.sqlite
+
+# Firebase - NUNCA suba credenciais para o git!
+firebase-service-account.json
+*-firebase-adminsdk-*.json
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
