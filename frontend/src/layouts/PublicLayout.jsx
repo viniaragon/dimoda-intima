@@ -2,6 +2,7 @@ import { Outlet, Link } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { ShoppingCart, Menu, X, Sun, Moon, User } from 'lucide-react'
 import { useCart } from '../contexts/CartContext'
+import Logo from '../components/Logo'
 
 const categories = [
     { name: 'Início', slug: '' },
@@ -42,7 +43,7 @@ export default function PublicLayout() {
             {/* Brand Header */}
             <div className="mb-6 text-center">
                 <Link to="/">
-                    <img src="/logo.svg" alt="Di' Moda Íntima" className="h-24 mx-auto" />
+                    <Logo className="h-24 mx-auto" />
                 </Link>
             </div>
 
@@ -58,7 +59,7 @@ export default function PublicLayout() {
                         }
                     `}>
                         <Link to="/">
-                            <img src="/logo.svg" alt="Di' Moda Íntima" className="h-12" />
+                            <Logo className="h-12" />
                         </Link>
 
                         <div className="flex items-center gap-6">
@@ -136,7 +137,7 @@ export default function PublicLayout() {
                         <div className="flex flex-col items-center text-center">
                             <div className="mb-4">
                                 <Link to="/">
-                                    <img src="/logo.svg" alt="Di' Moda Íntima" className="h-20 mx-auto" />
+                                    <Logo className="h-20 mx-auto" />
                                 </Link>
                             </div>
                             <div className="flex gap-4 mt-2">
