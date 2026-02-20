@@ -41,12 +41,9 @@ export default function PublicLayout() {
         <div className="min-h-screen flex flex-col items-center py-8 transition-colors duration-300">
             {/* Brand Header */}
             <div className="mb-6 text-center">
-                <h1 className="font-display text-6xl text-stone-800 dark:text-stone-100 font-bold tracking-tight">
-                    Di'
-                </h1>
-                <p className="font-script text-3xl text-stone-700 dark:text-stone-300 -mt-2">
-                    Moda Íntima
-                </p>
+                <Link to="/">
+                    <img src="/logo.svg" alt="Di' Moda Íntima" className="h-24 mx-auto" />
+                </Link>
             </div>
 
             {/* Main Container */}
@@ -60,13 +57,8 @@ export default function PublicLayout() {
                             : 'py-6 bg-paper-light dark:bg-paper-dark'
                         }
                     `}>
-                        <Link to="/" className="flex flex-col items-center">
-                            <span className="font-display text-3xl font-bold text-stone-800 dark:text-stone-100 leading-none">
-                                Di'
-                            </span>
-                            <span className="font-script text-sm text-stone-600 dark:text-stone-400">
-                                Moda Íntima
-                            </span>
+                        <Link to="/">
+                            <img src="/logo.svg" alt="Di' Moda Íntima" className="h-12" />
                         </Link>
 
                         <div className="flex items-center gap-6">
@@ -143,12 +135,9 @@ export default function PublicLayout() {
                         {/* Brand */}
                         <div className="flex flex-col items-center text-center">
                             <div className="mb-4">
-                                <span className="font-display text-5xl font-bold text-stone-800 dark:text-stone-100 leading-none">
-                                    Di'
-                                </span>
-                                <div className="font-script text-2xl text-stone-600 dark:text-stone-400 -mt-1">
-                                    Moda Íntima
-                                </div>
+                                <Link to="/">
+                                    <img src="/logo.svg" alt="Di' Moda Íntima" className="h-20 mx-auto" />
+                                </Link>
                             </div>
                             <div className="flex gap-4 mt-2">
                                 <a
