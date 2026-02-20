@@ -4,7 +4,6 @@ export default function Logo({ className = 'h-24' }) {
             xmlns="http://www.w3.org/2000/svg"
             viewBox="0 0 600 300"
             className={className}
-            style={{ backgroundColor: '#fceceb' }}
         >
             <defs>
                 <style>{`
@@ -54,7 +53,6 @@ export default function Logo({ className = 'h-24' }) {
                 `}</style>
             </defs>
 
-            <rect width="100%" height="100%" fill="#fceceb" />
 
             <g transform="translate(300, 150)">
                 <g className="logo-group-di">
