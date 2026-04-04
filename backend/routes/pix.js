@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import Stripe from 'stripe'
 import db from '../database-firebase.js'
+import { sendOrderEmails } from '../services/emailNotification.js'
 
 const router = Router()
 
@@ -194,6 +195,17 @@ router.post('/webhook', async (req, res) => {
             if (session.payment_status === 'paid') {
                 await db.updateOrderStatus(orderId, 'confirmed')
                 console.log(`[Webhook] Pedido ${orderId} confirmado!`)
+                
+                // Enviar email de confirmação de pagamento
+                try {
+                    const order = await db.getOrderById(orderId)
+                    if (order) {
+                        sendOrderEmails(order, true)
+                            .catch(err => console.error('Erro ao enviar email de confirmação Stripe', err))
+                    }
+                } catch (e) {
+                    console.error('Erro ao buscar pedido para email', e)
+                }
             }
         }
     }

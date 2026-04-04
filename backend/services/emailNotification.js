@@ -3,13 +3,17 @@
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY || ''
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'dimodaintima@gmail.com'
+const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'Di Moda Íntima <onboarding@resend.dev>'
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
 
 /**
  * Formats an order notification email
  * @param {Object} order - The order data
+ * @param {boolean} isPaid - Whether the order is paid
+ * @param {boolean} isCustomer - Whether the email is directed to the customer
  * @returns {Object} - Email subject and HTML content
  */
-export function formatOrderEmail(order) {
+export function formatOrderEmail(order, isPaid = false, isCustomer = false) {
     const itemsHtml = order.items
         .map(item => `
             <tr>
@@ -20,7 +24,29 @@ export function formatOrderEmail(order) {
         `)
         .join('')
 
-    const subject = `🛒 Novo Pedido #${order.id} - Di' Moda Íntima`
+    const subjectPrefix = isPaid ? '✅ Pagamento Confirmado' : '🛒 Pedido Processado'
+    const subject = `${subjectPrefix} #${order.id} - Di' Moda Íntima`
+
+    let headerTitle = isPaid ? "Pagamento Confirmado!" : "Pedido Registrado!";
+    let statusMessage = "";
+
+    if (isPaid) {
+        statusMessage = isCustomer 
+            ? "Ótima notícia! Seu pagamento foi aprovado e o pedido já está sendo preparado para envio."
+            : "O pagamento deste pedido foi confirmado (Cartão de Crédito).";
+    } else {
+        if (order.payment_method === 'pix') {
+            statusMessage = isCustomer 
+                ? "Recebemos o seu pedido! Estamos aguardando o envio do seu comprovante PIX no WhatsApp para liberar a entrega." 
+                : "Novo pedido via PIX. Aguardando recebimento do comprovante do cliente para confirmação.";
+        } else if (order.payment_method === 'cash') {
+            statusMessage = isCustomer 
+                ? "Recebemos o seu pedido! O pagamento deverá ser realizado no momento da entrega."
+                : "Novo pedido com pagamento na entrega (Dinheiro).";
+        } else {
+            statusMessage = "Aguardando processamento/pagamento.";
+        }
+    }
 
     const html = `
     <!DOCTYPE html>
@@ -31,23 +57,29 @@ export function formatOrderEmail(order) {
             body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
             .container { max-width: 600px; margin: 0 auto; padding: 20px; }
             .header { background: linear-gradient(135deg, #D4A574, #C49A6C); color: #1a1a1a; padding: 20px; text-align: center; border-radius: 10px 10px 0 0; }
-            .content { background: #fff; padding: 20px; border: 1px solid #ddd; }
+            .content { background: #fff; padding: 20px; border: 1px solid #ddd; border-top: none; }
             .section { margin-bottom: 20px; }
+            .status-box { background-color: #fcf8f2; padding: 15px; border-left: 4px solid #D4A574; border-radius: 4px; }
             .section-title { font-weight: bold; color: #D4A574; margin-bottom: 10px; font-size: 16px; }
             table { width: 100%; border-collapse: collapse; }
             th { background: #f5f5f5; padding: 10px; text-align: left; }
             .total { font-size: 20px; font-weight: bold; color: #D4A574; }
             .footer { background: #f5f5f5; padding: 15px; text-align: center; border-radius: 0 0 10px 10px; }
+            .btn { display: inline-block; background-color: #1a1a1a; color: #D4A574 !important; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; margin-top: 10px; }
         </style>
     </head>
     <body>
         <div class="container">
             <div class="header">
-                <h1 style="margin: 0;">🛒 Novo Pedido!</h1>
+                <h1 style="margin: 0;">${headerTitle}</h1>
                 <p style="margin: 5px 0 0 0;">Pedido #${order.id}</p>
             </div>
             
             <div class="content">
+                <div class="section status-box">
+                    <p style="margin: 0; font-size: 15px;">${statusMessage}</p>
+                </div>
+
                 <div class="section">
                     <div class="section-title">👤 Cliente</div>
                     <p style="margin: 5px 0;"><strong>Nome:</strong> ${order.customer_name}</p>
@@ -81,8 +113,8 @@ export function formatOrderEmail(order) {
                 </div>
                 
                 <div class="section">
-                    <div class="section-title">💳 Pagamento</div>
-                    <p style="margin: 5px 0;">${order.payment_method === 'pix' ? 'PIX' : order.payment_method === 'card' ? 'Cartão de Crédito' : order.payment_method}</p>
+                    <div class="section-title">💳 Pagamento selecionado</div>
+                    <p style="margin: 5px 0;">${order.payment_method === 'pix' ? 'PIX' : order.payment_method === 'card' ? 'Cartão de Crédito' : order.payment_method === 'cash' ? 'Dinheiro (na entrega)' : order.payment_method}</p>
                 </div>
                 
                 ${order.notes ? `
@@ -91,6 +123,10 @@ export function formatOrderEmail(order) {
                     <p style="margin: 5px 0;">${order.notes}</p>
                 </div>
                 ` : ''}
+
+                <div class="section" style="text-align: center; margin-top: 30px;">
+                    <a href="${FRONTEND_URL}/pedido/${order.id}" class="btn">Acompanhar Pedido</a>
+                </div>
             </div>
             
             <div class="footer">
@@ -108,58 +144,65 @@ export function formatOrderEmail(order) {
 }
 
 /**
- * Sends an email notification to admin about a new order using Resend API
+ * Sends an email notification to admin (and customer if applicable) using Resend API
  * @param {Object} order - The order data
+ * @param {boolean} isPaid - Whether the order is paid (to change email phrasing)
  */
-export async function notifyAdminEmail(order) {
-    const { subject, html } = formatOrderEmail(order)
-
-    console.log('\n📧 ==================== NOVO PEDIDO ====================')
-    console.log(`Pedido #${order.id}`)
-    console.log(`Cliente: ${order.customer_name} - ${order.customer_phone}`)
-    console.log(`Total: R$ ${order.total.toFixed(2)}`)
-    console.log('=======================================================\n')
-
+export async function sendOrderEmails(order, isPaid = false) {
     if (!RESEND_API_KEY) {
         console.log('💡 Para receber emails, configure RESEND_API_KEY no Railway')
-        console.log('   Crie uma conta grátis em: https://resend.com')
         return { success: true, method: 'console' }
     }
 
     try {
-        console.log('📧 Enviando email via Resend para:', ADMIN_EMAIL)
+        const promises = []
 
-        const response = await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${RESEND_API_KEY}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                from: 'Di Moda Íntima <onboarding@resend.dev>',
-                to: [ADMIN_EMAIL],
-                subject: subject,
-                html: html
+        // Email para o Admin
+        const adminData = formatOrderEmail(order, isPaid, false)
+        promises.push(
+            fetch('https://api.resend.com/emails', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    from: FROM_EMAIL,
+                    to: [ADMIN_EMAIL],
+                    subject: adminData.subject,
+                    html: adminData.html
+                })
             })
-        })
+        )
 
-        const result = await response.json()
-
-        if (response.ok) {
-            console.log('📧 Email enviado com sucesso:', result.id)
-            return { success: true, method: 'resend', id: result.id }
-        } else {
-            console.error('❌ Erro Resend:', result)
-            return { success: false, error: result.message || 'Erro desconhecido' }
+        // Email para o Cliente (se houver e-mail válido no pedido)
+        if (order.customer_email && order.customer_email.includes('@')) {
+            const customerData = formatOrderEmail(order, isPaid, true)
+            promises.push(
+                fetch('https://api.resend.com/emails', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        from: FROM_EMAIL,
+                        to: [order.customer_email],
+                        subject: customerData.subject,
+                        html: customerData.html
+                    })
+                })
+            )
         }
+
+        const responses = await Promise.all(promises)
+        const checkResults = await Promise.all(responses.map(res => res.json()))
+        
+        console.log('📧 Emails enviados:', checkResults.map(r => r.id || r.message))
+        return { success: true, results: checkResults }
+
     } catch (error) {
-        console.error('❌ Erro ao enviar email:', error.message)
+        console.error('❌ Erro ao enviar emails:', error.message)
         return { success: false, error: error.message }
     }
 }
 
 export default {
     formatOrderEmail,
-    notifyAdminEmail,
+    sendOrderEmails,
     ADMIN_EMAIL
 }
