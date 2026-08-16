@@ -47,6 +47,7 @@ Impedir que dados, imagens ou respostas demonstrativas apareçam em produção; 
 - [x] Ignorar nome, preço e total enviados pelo navegador.
 - [x] Recalcular preços e total no servidor usando valores canônicos do banco.
 - [x] Fazer o pagamento usar o pedido validado como fonte do valor e dos itens.
+- [x] Exigir assinatura no webhook Stripe e reconciliar o retorno do checkout de forma idempotente pelo servidor.
 - [x] Retornar códigos HTTP e mensagens coerentes para entrada inválida, ausência e conflito de estoque.
 
 ## 5. Testes obrigatórios
@@ -67,11 +68,38 @@ Impedir que dados, imagens ou respostas demonstrativas apareçam em produção; 
 - [x] Gerar build de produção do frontend.
 - [x] Executar verificação de sintaxe disponível no projeto.
 - [x] Revisar o diff e garantir que não há segredos nem alterações fora do escopo.
-- [ ] Commitar e publicar a branch `migration/coolify`.
-- [ ] Configurar o backend do Coolify para a mesma branch e redeployar frontend/backend.
-- [ ] Validar produção em `https://dimodaintima.cloud` e `https://api.dimodaintima.cloud`.
-- [ ] Confirmar no bundle/rede de produção que não há requisição ao Unsplash.
-- [ ] Registrar o resultado final e os comandos de rollback.
+- [x] Commitar e publicar a branch `migration/coolify`.
+- [x] Configurar o backend do Coolify para a mesma branch e redeployar frontend/backend.
+- [x] Validar produção em `https://dimodaintima.cloud` e `https://api.dimodaintima.cloud`.
+- [x] Confirmar no bundle/rede de produção que não há requisição ao Unsplash.
+- [x] Registrar o resultado final e os comandos de rollback.
+
+## Resultado da implantação
+
+- Versão publicada no frontend e no backend: `7c60c3d2194f998df77cadd91c728565c2a7634b`.
+- Backend: healthcheck interno e `GET /api/health` públicos aprovados.
+- Frontend: HTTP 200, configuração real e 75 produtos carregados; nenhuma referência ao Unsplash ou aos produtos demonstrativos conhecidos no bundle.
+- Validação negativa sem gravação: produto inexistente recusado com `PRODUCT_NOT_FOUND` e pedido inexistente recusado com `ORDER_NOT_FOUND`, ambos HTTP 404.
+- Navegador interno: página inicial exibiu somente configuração/imagens reais; rota inexistente exibiu “Produto não encontrado”.
+- Vercel e Zeabur foram preservados sem alterações como contingência adicional.
+
+## Rollback documentado
+
+Opção preferencial, sem alterar o histórico Git:
+
+1. No Coolify, usar **Rollback** do frontend para o deployment do commit `6fb843dcd1e6f0783138e1329fca572a92386f15`.
+2. No Coolify, usar **Rollback** do backend para o deployment do commit `e5b83c96360422be6b24e6077b190d7ab967778e`.
+3. Confirmar `GET https://api.dimodaintima.cloud/api/health` e a página inicial após a troca.
+
+Alternativa auditável pelo Git, criando commits reversos:
+
+```powershell
+git switch migration/coolify
+git revert 7c60c3d e8e6e84
+git push origin migration/coolify
+```
+
+Essa alternativa deve ser usada somente se for necessário desfazer integralmente esta implementação; os deploys antigos do Coolify e os serviços originais continuam disponíveis.
 
 ## Critérios de aceite
 
