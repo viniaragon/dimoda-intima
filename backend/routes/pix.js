@@ -32,6 +32,29 @@ function assertPaymentMethod(order, expectedMethod) {
     }
 }
 
+async function reconcilePaidStripeSession(order, session) {
+    if (session.payment_status !== 'paid') return false
+
+    const result = await db.confirmOrderPayment(order.id, {
+        payment_id: session.id,
+        payment_status: session.payment_status
+    })
+
+    if (!result) {
+        throw new CommerceValidationError('Pedido não encontrado', {
+            status: 404,
+            code: 'ORDER_NOT_FOUND'
+        })
+    }
+
+    if (result.changed) {
+        sendOrderEmails({ ...result.order, status: 'confirmed', payment_status: 'paid' }, true)
+            .catch(error => console.error('Erro ao enviar email de confirmação Stripe', error))
+    }
+
+    return result.changed
+}
+
 async function loadPixOrder(orderId) {
     const order = await getValidatedOrderForPayment(orderId, db)
     assertPaymentMethod(order, 'pix')
@@ -131,6 +154,8 @@ router.get('/status/:sessionId', async (req, res) => {
             return res.status(409).json({ error: 'Valor do pagamento não corresponde ao pedido' })
         }
 
+        await reconcilePaidStripeSession(order, session)
+
         res.json({
             session_id: session.id,
             payment_status: session.payment_status,
@@ -181,17 +206,14 @@ router.post('/webhook', async (req, res) => {
                 return res.status(409).json({ error: 'Pagamento não corresponde ao pedido' })
             }
 
-            await db.updateOrderPayment(orderId, {
-                payment_id: session.id,
-                payment_status: session.payment_status
-            })
-
             if (session.payment_status === 'paid') {
-                await db.updateOrderStatus(orderId, 'confirmed')
+                await reconcilePaidStripeSession(order, session)
                 console.log(`[Webhook] Pedido ${orderId} confirmado!`)
-
-                sendOrderEmails({ ...order, status: 'confirmed', payment_status: 'paid' }, true)
-                    .catch(error => console.error('Erro ao enviar email de confirmação Stripe', error))
+            } else {
+                await db.updateOrderPayment(orderId, {
+                    payment_id: session.id,
+                    payment_status: session.payment_status
+                })
             }
         }
     }

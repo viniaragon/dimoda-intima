@@ -165,6 +165,27 @@ export async function updateOrderPayment(id, paymentData) {
     return { id, ...paymentData }
 }
 
+export async function confirmOrderPayment(id, paymentData) {
+    const orderRef = db.collection('orders').doc(id)
+
+    return db.runTransaction(async transaction => {
+        const snapshot = await transaction.get(orderRef)
+        if (!snapshot.exists) return null
+
+        const order = { id: snapshot.id, ...snapshot.data() }
+        const alreadyConfirmed = order.payment_status === 'paid' && order.status === 'confirmed'
+
+        transaction.update(orderRef, {
+            payment_id: paymentData.payment_id,
+            payment_status: 'paid',
+            status: 'confirmed',
+            updated_at: admin.firestore.FieldValue.serverTimestamp()
+        })
+
+        return { order, changed: !alreadyConfirmed }
+    })
+}
+
 export async function deleteOrder(id) {
     await db.collection('orders').doc(id).delete()
     return { success: true }
@@ -403,6 +424,7 @@ export default {
     createOrder,
     updateOrderStatus,
     updateOrderPayment,
+    confirmOrderPayment,
     deleteOrder,
     archiveOrder,
     archiveAllOrders,
