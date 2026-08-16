@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 
 const SITE_NAME = "Di' Moda Íntima"
-const SITE_URL = 'https://dimoda-intima.vercel.app' // Update with your actual domain
+const SITE_URL = 'https://dimodaintima.cloud'
 
 /**
  * SEO Component - Manages document head meta tags dynamically

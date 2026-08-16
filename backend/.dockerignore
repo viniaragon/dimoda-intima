@@ -1,0 +1,15 @@
+node_modules
+npm-debug.log*
+*.log
+
+.env
+.env.*
+!.env.example
+
+firebase-service-account.json
+*-firebase-adminsdk-*.json
+
+.git
+.gitignore
+.vercel
+coverage

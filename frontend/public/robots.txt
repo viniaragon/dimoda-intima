@@ -6,4 +6,4 @@ Disallow: /minha-conta
 Disallow: /carrinho
 
 # Sitemap
-Sitemap: https://dimoda-intima.vercel.app/sitemap.xml
+Sitemap: https://dimodaintima.cloud/sitemap.xml

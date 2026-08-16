@@ -9,6 +9,7 @@ env-keys/
 # Build output
 dist/
 .vercel/
+graphify-out/
 
 # Environment variables
 .env
