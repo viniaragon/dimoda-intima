@@ -3,6 +3,8 @@ import { Plus, Pencil, Trash2, Search, X } from 'lucide-react'
 import api from '../services/api'
 import toast from 'react-hot-toast'
 import MultiImageUpload from '../components/MultiImageUpload'
+import LoadError from '../components/LoadError'
+import { handleImageError, PRODUCT_PLACEHOLDER } from '../utils/images'
 
 const categories = [
     { slug: 'vibrador', name: 'Vibrador' },
@@ -29,6 +31,7 @@ const emptyProduct = {
 export default function AdminProducts() {
     const [products, setProducts] = useState([])
     const [loading, setLoading] = useState(true)
+    const [loadError, setLoadError] = useState(false)
     const [searchTerm, setSearchTerm] = useState('')
     const [categoryFilter, setCategoryFilter] = useState('')
     const [showFeaturedOnly, setShowFeaturedOnly] = useState(false)
@@ -43,13 +46,14 @@ export default function AdminProducts() {
 
     const loadProducts = async () => {
         setLoading(true)
+        setLoadError(false)
         try {
             const response = await api.get('/api/products')
-            setProducts(response.data)
+            setProducts(Array.isArray(response.data) ? response.data : [])
         } catch (error) {
             console.error('Error loading products:', error)
-            // Sample data for development
-            setProducts(sampleProducts)
+            setProducts([])
+            setLoadError(true)
         } finally {
             setLoading(false)
         }
@@ -164,24 +168,7 @@ export default function AdminProducts() {
             loadProducts()
         } catch (error) {
             console.error('Error saving product:', error)
-            // For development, simulate success
-            if (editingProduct) {
-                setProducts(prev => prev.map(p =>
-                    p.id === editingProduct.id
-                        ? { ...p, ...formData, price: parseFloat(formData.price), stock: parseInt(formData.stock) }
-                        : p
-                ))
-            } else {
-                const newProduct = {
-                    id: Date.now(),
-                    ...formData,
-                    price: parseFloat(formData.price),
-                    stock: parseInt(formData.stock)
-                }
-                setProducts(prev => [...prev, newProduct])
-            }
-            toast.success(editingProduct ? 'Produto atualizado!' : 'Produto criado!')
-            setShowModal(false)
+            toast.error(editingProduct ? 'Erro ao atualizar produto' : 'Erro ao criar produto')
         } finally {
             setSaving(false)
         }
@@ -195,9 +182,8 @@ export default function AdminProducts() {
             toast.success('Produto excluído!')
             loadProducts()
         } catch (error) {
-            // For development, simulate success
-            setProducts(prev => prev.filter(p => p.id !== id))
-            toast.success('Produto excluído!')
+            console.error('Error deleting product:', error)
+            toast.error('Erro ao excluir produto')
         }
     }
 
@@ -282,6 +268,8 @@ export default function AdminProducts() {
                     <div className="flex items-center justify-center h-64">
                         <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
                     </div>
+                ) : loadError ? (
+                    <LoadError onRetry={loadProducts} />
                 ) : (
                     <>
                         {/* Desktop Table - Hidden on mobile */}
@@ -318,9 +306,10 @@ export default function AdminProducts() {
                                             <td className="p-4">
                                                 <div className="flex items-center gap-3">
                                                     <img
-                                                        src={getProductImages(product)[0] || 'https://via.placeholder.com/50x50?text=?'}
+                                                        src={getProductImages(product)[0] || PRODUCT_PLACEHOLDER}
                                                         alt={product.name}
                                                         className="w-12 h-12 object-cover rounded"
+                                                        onError={handleImageError}
                                                     />
                                                     <span className="font-medium text-stone-800 dark:text-white">
                                                         {product.name}
@@ -390,9 +379,8 @@ export default function AdminProducts() {
                                                                 ))
                                                                 toast.success(newFeatured ? 'Adicionado aos destaques!' : 'Removido dos destaques!')
                                                             } catch (error) {
-                                                                setProducts(prev => prev.map(p =>
-                                                                    p.id === product.id ? { ...p, featured: newFeatured } : p
-                                                                ))
+                                                                console.error('Error updating featured product:', error)
+                                                                toast.error('Erro ao atualizar destaque')
                                                             }
                                                         }}
                                                         className="w-4 h-4 text-primary rounded border-stone-300 focus:ring-primary cursor-pointer"
@@ -431,9 +419,10 @@ export default function AdminProducts() {
                                     {/* Product Header */}
                                     <div className="flex items-start gap-3 mb-3">
                                         <img
-                                            src={getProductImages(product)[0] || 'https://via.placeholder.com/60x60?text=?'}
+                                            src={getProductImages(product)[0] || PRODUCT_PLACEHOLDER}
                                             alt={product.name}
                                             className="w-16 h-16 object-cover rounded-lg flex-shrink-0"
+                                            onError={handleImageError}
                                         />
                                         <div className="flex-1 min-w-0">
                                             <h3 className="font-medium text-stone-800 dark:text-white text-sm truncate">
@@ -511,9 +500,8 @@ export default function AdminProducts() {
                                                         ))
                                                         toast.success(newFeatured ? 'Adicionado aos destaques!' : 'Removido dos destaques!')
                                                     } catch (error) {
-                                                        setProducts(prev => prev.map(p =>
-                                                            p.id === product.id ? { ...p, featured: newFeatured } : p
-                                                        ))
+                                                        console.error('Error updating featured product:', error)
+                                                        toast.error('Erro ao atualizar destaque')
                                                     }
                                                 }}
                                                 className="w-4 h-4 text-primary rounded border-stone-300 focus:ring-primary"
@@ -539,7 +527,7 @@ export default function AdminProducts() {
                     </>
                 )}
 
-                {!loading && filteredProducts.length === 0 && (
+                {!loading && !loadError && filteredProducts.length === 0 && (
                     <div className="p-12 text-center text-stone-500 dark:text-stone-400">
                         Nenhum produto encontrado.
                     </div>
@@ -740,12 +728,3 @@ export default function AdminProducts() {
         </div >
     )
 }
-
-// Sample products for development
-const sampleProducts = [
-    { id: 1, name: 'Vibrador Ponto G Luxo', price: 199.90, category_slug: 'vibrador', stock: 15, featured: true, image: 'https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?w=100' },
-    { id: 2, name: 'Fantasia Enfermeira', price: 159.90, category_slug: 'fantasia', stock: 8, featured: true, image: 'https://images.unsplash.com/photo-1558171813-4c088753af8f?w=100' },
-    { id: 3, name: 'Gel Beijável Morango', price: 39.90, category_slug: 'gel-beijavel', stock: 25, featured: false, image: 'https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=100' },
-    { id: 4, name: 'Energético Power Max', price: 89.90, category_slug: 'energetico-sexual', stock: 12, featured: false, image: 'https://images.unsplash.com/photo-1559056199-641a0ac8b55e?w=100' },
-    { id: 5, name: 'Gel Excitante Feminino', price: 49.90, category_slug: 'gel-feminino', stock: 0, featured: true, image: 'https://images.unsplash.com/photo-1571781926291-c477ebfd024b?w=100' },
-]

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { ChevronRight } from 'lucide-react'
 import api from '../services/api'
+import LoadError from '../components/LoadError'
 import ProductCard from '../components/ProductCard'
 import SEO from '../components/SEO'
 
@@ -20,6 +21,7 @@ export default function CategoryPage() {
     const { slug } = useParams()
     const [products, setProducts] = useState([])
     const [loading, setLoading] = useState(true)
+    const [loadError, setLoadError] = useState(false)
     const [sortBy, setSortBy] = useState('name')
 
     const categoryName = categoryNames[slug] || slug
@@ -30,13 +32,14 @@ export default function CategoryPage() {
 
     const loadProducts = async () => {
         setLoading(true)
+        setLoadError(false)
         try {
             const response = await api.get(`/api/products?category=${slug}`)
-            setProducts(response.data)
+            setProducts(Array.isArray(response.data) ? response.data : [])
         } catch (error) {
             console.error('Error loading products:', error)
-            // Sample products for development
-            setProducts(getSampleProducts(slug))
+            setProducts([])
+            setLoadError(true)
         } finally {
             setLoading(false)
         }
@@ -96,6 +99,8 @@ export default function CategoryPage() {
                 <div className="flex justify-center py-12">
                     <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
                 </div>
+            ) : loadError ? (
+                <LoadError onRetry={loadProducts} />
             ) : products.length === 0 ? (
                 <div className="text-center py-16">
                     <p className="text-stone-500 dark:text-stone-400 text-lg mb-4">
@@ -114,40 +119,4 @@ export default function CategoryPage() {
             )}
         </div>
     )
-}
-
-// Sample products for development
-function getSampleProducts(categorySlug) {
-    const products = {
-        'vibrador': [
-            { id: 1, name: 'Vibrador Ponto G Luxo', price: 199.90, image: 'https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?w=400&h=500&fit=crop', category_slug: 'vibrador' },
-            { id: 2, name: 'Vibrador Bullet Discreto', price: 79.90, image: 'https://images.unsplash.com/photo-1596462502278-27bfdc403348?w=400&h=500&fit=crop', category_slug: 'vibrador' },
-            { id: 3, name: 'Vibrador Dupla Ação', price: 249.90, image: 'https://images.unsplash.com/photo-1571781926291-c477ebfd024b?w=400&h=500&fit=crop', category_slug: 'vibrador' },
-        ],
-        'fantasia': [
-            { id: 4, name: 'Fantasia Enfermeira Premium', price: 159.90, image: 'https://images.unsplash.com/photo-1558171813-4c088753af8f?w=400&h=500&fit=crop', category_slug: 'fantasia' },
-            { id: 5, name: 'Fantasia Coelhinha', price: 139.90, image: 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=400&h=500&fit=crop', category_slug: 'fantasia' },
-        ],
-        'gel-beijavel': [
-            { id: 6, name: 'Gel Beijável Morango', price: 39.90, image: 'https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=400&h=500&fit=crop', category_slug: 'gel-beijavel' },
-            { id: 7, name: 'Gel Beijável Chocolate', price: 39.90, image: 'https://images.unsplash.com/photo-1571781926291-c477ebfd024b?w=400&h=500&fit=crop', category_slug: 'gel-beijavel' },
-        ],
-        'energetico-sexual': [
-            { id: 8, name: 'Energético Power Max', price: 89.90, image: 'https://images.unsplash.com/photo-1559056199-641a0ac8b55e?w=400&h=500&fit=crop', category_slug: 'energetico-sexual' },
-        ],
-        'gel-feminino': [
-            { id: 9, name: 'Gel Feminino Excitante', price: 49.90, image: 'https://images.unsplash.com/photo-1571781926291-c477ebfd024b?w=400&h=500&fit=crop', category_slug: 'gel-feminino' },
-        ],
-        'gel-masculino': [
-            { id: 10, name: 'Gel Masculino Retardante', price: 59.90, image: 'https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=400&h=500&fit=crop', category_slug: 'gel-masculino' },
-        ],
-        'sexo-anal': [
-            { id: 11, name: 'Gel Anal Dessensibilizante', price: 44.90, image: 'https://images.unsplash.com/photo-1571781926291-c477ebfd024b?w=400&h=500&fit=crop', category_slug: 'sexo-anal' },
-        ],
-        'outros': [
-            { id: 12, name: 'Algema de Pelúcia', price: 69.90, image: 'https://images.unsplash.com/photo-1559056199-641a0ac8b55e?w=400&h=500&fit=crop', category_slug: 'outros' },
-        ],
-    }
-
-    return products[categorySlug] || []
 }

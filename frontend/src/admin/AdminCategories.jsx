@@ -2,21 +2,12 @@ import { useState, useEffect } from 'react'
 import { Plus, Pencil, Trash2, X } from 'lucide-react'
 import api from '../services/api'
 import toast from 'react-hot-toast'
-
-const defaultCategories = [
-    { id: 1, name: 'Vibrador', slug: 'vibrador', icon: '💫' },
-    { id: 2, name: 'Fantasia', slug: 'fantasia', icon: '🎭' },
-    { id: 3, name: 'Energético Sexual', slug: 'energetico-sexual', icon: '⚡' },
-    { id: 4, name: 'Gel Beijável', slug: 'gel-beijavel', icon: '💋' },
-    { id: 5, name: 'Gel Feminino', slug: 'gel-feminino', icon: '🌸' },
-    { id: 6, name: 'Gel Masculino', slug: 'gel-masculino', icon: '🔵' },
-    { id: 7, name: 'Sexo Anal', slug: 'sexo-anal', icon: '💜' },
-    { id: 8, name: 'Outros', slug: 'outros', icon: '✨' },
-]
+import LoadError from '../components/LoadError'
 
 export default function AdminCategories() {
     const [categories, setCategories] = useState([])
     const [loading, setLoading] = useState(true)
+    const [loadError, setLoadError] = useState(false)
     const [showModal, setShowModal] = useState(false)
     const [editingCategory, setEditingCategory] = useState(null)
     const [formData, setFormData] = useState({ name: '', slug: '', icon: '' })
@@ -28,12 +19,14 @@ export default function AdminCategories() {
 
     const loadCategories = async () => {
         setLoading(true)
+        setLoadError(false)
         try {
             const response = await api.get('/api/categories')
-            setCategories(response.data)
+            setCategories(Array.isArray(response.data) ? response.data : [])
         } catch (error) {
             console.error('Error loading categories:', error)
-            setCategories(defaultCategories)
+            setCategories([])
+            setLoadError(true)
         } finally {
             setLoading(false)
         }
@@ -88,16 +81,8 @@ export default function AdminCategories() {
             setShowModal(false)
             loadCategories()
         } catch (error) {
-            // For development, simulate success
-            if (editingCategory) {
-                setCategories(prev => prev.map(c =>
-                    c.id === editingCategory.id ? { ...c, ...formData } : c
-                ))
-            } else {
-                setCategories(prev => [...prev, { id: Date.now(), ...formData }])
-            }
-            toast.success(editingCategory ? 'Categoria atualizada!' : 'Categoria criada!')
-            setShowModal(false)
+            console.error('Error saving category:', error)
+            toast.error(editingCategory ? 'Erro ao atualizar categoria' : 'Erro ao criar categoria')
         } finally {
             setSaving(false)
         }
@@ -111,8 +96,8 @@ export default function AdminCategories() {
             toast.success('Categoria excluída!')
             loadCategories()
         } catch (error) {
-            setCategories(prev => prev.filter(c => c.id !== id))
-            toast.success('Categoria excluída!')
+            console.error('Error deleting category:', error)
+            toast.error('Erro ao excluir categoria')
         }
     }
 
@@ -138,6 +123,8 @@ export default function AdminCategories() {
                 <div className="flex items-center justify-center h-64">
                     <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
                 </div>
+            ) : loadError ? (
+                <LoadError onRetry={loadCategories} />
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                     {categories.map(category => (

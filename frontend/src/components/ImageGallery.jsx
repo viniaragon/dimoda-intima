@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { ChevronLeft, ChevronRight, ZoomIn, X } from 'lucide-react'
+import { handleImageError, PRODUCT_PLACEHOLDER } from '../utils/images'
 
 export default function ImageGallery({ images = [], productName = 'Produto', imageFit = 'contain' }) {
     const [activeIndex, setActiveIndex] = useState(0)
@@ -24,7 +25,7 @@ export default function ImageGallery({ images = [], productName = 'Produto', ima
     // Normalize: garantir que sempre temos um array de imagens
     const imageList = Array.isArray(images) && images.length > 0
         ? images.slice(0, 5) // Máximo 5 imagens
-        : ['https://via.placeholder.com/600x600?text=Sem+Imagem']
+        : [PRODUCT_PLACEHOLDER]
 
     const currentImage = imageList[activeIndex] || imageList[0]
 
@@ -73,6 +74,7 @@ export default function ImageGallery({ images = [], productName = 'Produto', ima
                             src={currentImage}
                             alt={`${productName} - Imagem ${activeIndex + 1}`}
                             className={`w-full h-full ${imageFit === 'contain' ? 'object-contain' : 'object-cover'} transition-transform duration-200 hover:scale-105`}
+                            onError={handleImageError}
                         />
 
                         {/* Zoom indicator */}
@@ -126,6 +128,7 @@ export default function ImageGallery({ images = [], productName = 'Produto', ima
                                     src={img}
                                     alt={`${productName} - Miniatura ${index + 1}`}
                                     className="w-full h-full object-cover"
+                                    onError={handleImageError}
                                 />
                                 {index === activeIndex && (
                                     <div className="absolute inset-0 bg-primary/10" />
@@ -165,6 +168,7 @@ export default function ImageGallery({ images = [], productName = 'Produto', ima
                             className="max-w-none w-auto h-auto max-h-[80vh] object-contain select-none"
                             style={{ touchAction: 'pinch-zoom' }}
                             draggable={false}
+                            onError={handleImageError}
                         />
                     </div>
 
@@ -207,6 +211,7 @@ export default function ImageGallery({ images = [], productName = 'Produto', ima
                                         src={img}
                                         alt={`Miniatura ${index + 1}`}
                                         className="w-full h-full object-cover"
+                                        onError={handleImageError}
                                     />
                                 </button>
                             ))}

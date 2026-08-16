@@ -2,22 +2,38 @@ import { useState, useEffect } from 'react'
 import { Eye, Save, Settings, Image, Type, Move, Check } from 'lucide-react'
 import api from '../services/api'
 import toast from 'react-hot-toast'
+import LoadError from '../components/LoadError'
+import { handleImageError, PRODUCT_PLACEHOLDER } from '../utils/images'
+
+const EMPTY_SITE_CONFIG = {
+    heroTitle: '',
+    heroSubtitle: '',
+    heroImage: '',
+    featuredTitle: '',
+    whyChooseTitle: '',
+    feature1: { icon: 'truck', title: '', text: '' },
+    feature2: { icon: 'diamond', title: '', text: '' },
+    feature3: { icon: 'headphones', title: '', text: '' },
+    pixKey: '',
+    whatsappNumber: '',
+    instagramUrl: '',
+    email: ''
+}
+
+function normalizeConfig(config) {
+    return {
+        ...EMPTY_SITE_CONFIG,
+        ...config,
+        feature1: { ...EMPTY_SITE_CONFIG.feature1, ...config?.feature1 },
+        feature2: { ...EMPTY_SITE_CONFIG.feature2, ...config?.feature2 },
+        feature3: { ...EMPTY_SITE_CONFIG.feature3, ...config?.feature3 }
+    }
+}
 
 export default function AdminVisualEditor() {
-    const [config, setConfig] = useState({
-        heroTitle: 'Elegância e Conforto em Casa',
-        heroSubtitle: 'Descubra nossa coleção exclusiva de produtos íntimos',
-        heroImage: 'https://images.unsplash.com/photo-1616621859117-c5a0d0f0f54d?w=1200&h=500&fit=crop',
-        featuredTitle: 'Produtos em Destaque',
-        whyChooseTitle: 'Por que escolher a Di\' Moda Íntima?',
-        feature1: { icon: 'truck', title: 'Entrega Discreta', text: 'Embalagem discreta e entrega rápida para todo o Brasil' },
-        feature2: { icon: 'diamond', title: 'Qualidade Premium', text: 'Produtos selecionados com os melhores materiais' },
-        feature3: { icon: 'headphones', title: 'Atendimento Personalizado', text: 'Suporte dedicado para tirar suas dúvidas' },
-        pixKey: '75983185141',
-        whatsappNumber: '5575983185141',
-        instagramUrl: 'https://instagram.com/dimodaintima',
-        email: 'contato@dimodaintima.com.br'
-    })
+    const [config, setConfig] = useState(null)
+    const [loading, setLoading] = useState(true)
+    const [loadError, setLoadError] = useState(false)
 
     const [editingField, setEditingField] = useState(null)
     const [previewMode, setPreviewMode] = useState(false)
@@ -29,13 +45,24 @@ export default function AdminVisualEditor() {
     }, [])
 
     const loadConfig = async () => {
+        setLoading(true)
+        setLoadError(false)
+        setConfig(null)
         try {
             const response = await api.get('/api/site-config')
-            if (response.data) {
-                setConfig(prev => ({ ...prev, ...response.data }))
+            if (!response.data || Object.keys(response.data).length === 0) {
+                throw new Error('Configuração do site ausente')
             }
+            setConfig(normalizeConfig(response.data))
         } catch (error) {
-            console.log('Using default config')
+            console.error('Error loading site config:', error)
+            if (error.response?.status === 404) {
+                setConfig(normalizeConfig({}))
+            } else {
+                setLoadError(true)
+            }
+        } finally {
+            setLoading(false)
         }
     }
 
@@ -45,15 +72,15 @@ export default function AdminVisualEditor() {
             await api.put('/api/site-config', config)
             toast.success('Configurações salvas!')
         } catch (error) {
-            // For development, just show success
-            toast.success('Configurações salvas!')
+            console.error('Error saving site config:', error)
+            toast.error('Erro ao salvar configurações')
         } finally {
             setSaving(false)
         }
     }
 
     const updateConfig = (key, value) => {
-        setConfig(prev => ({ ...prev, [key]: value }))
+        setConfig(prev => prev ? ({ ...prev, [key]: value }) : prev)
     }
 
     const EditableText = ({ configKey, element: Element = 'p', className = '', placeholder = '' }) => {
@@ -102,6 +129,19 @@ export default function AdminVisualEditor() {
         )
     }
 
+    if (loading) {
+        return (
+            <div className="space-y-6 animate-pulse" data-testid="visual-editor-skeleton">
+                <div className="h-10 w-64 rounded bg-stone-200 dark:bg-stone-700" />
+                <div className="h-[420px] rounded-xl bg-stone-200 dark:bg-stone-800" />
+            </div>
+        )
+    }
+
+    if (loadError || !config) {
+        return <LoadError onRetry={loadConfig} className="min-h-[420px]" />
+    }
+
     return (
         <div>
             {/* Header */}
@@ -146,10 +186,10 @@ export default function AdminVisualEditor() {
                 <section className="relative w-full h-[300px] group">
                     {/* Background Image */}
                     <img
-                        src={config.heroImage}
+                        src={config.heroImage || PRODUCT_PLACEHOLDER}
                         alt="Hero"
                         className="absolute inset-0 w-full h-full object-cover"
-                        onError={(e) => { e.target.src = 'https://via.placeholder.com/1200x500/9ca3af/ffffff?text=Imagem+do+Hero' }}
+                        onError={handleImageError}
                     />
 
                     {/* Dark overlay for text readability */}
@@ -346,10 +386,10 @@ export default function AdminVisualEditor() {
                                 Pré-visualização
                             </label>
                             <img
-                                src={config.heroImage}
+                                src={config.heroImage || PRODUCT_PLACEHOLDER}
                                 alt="Preview"
                                 className="w-full h-40 object-cover rounded border border-stone-200 dark:border-stone-700"
-                                onError={(e) => { e.target.src = 'https://via.placeholder.com/800x400?text=Imagem+inválida' }}
+                                onError={handleImageError}
                             />
                         </div>
 
@@ -364,7 +404,7 @@ export default function AdminVisualEditor() {
                                 type="text"
                                 value={config.heroTitle}
                                 onChange={(e) => updateConfig('heroTitle', e.target.value)}
-                                placeholder="Elegância e Conforto em Casa"
+                                placeholder="Digite o título principal"
                                 className="input-field"
                             />
                         </div>
@@ -377,7 +417,7 @@ export default function AdminVisualEditor() {
                             <textarea
                                 value={config.heroSubtitle}
                                 onChange={(e) => updateConfig('heroSubtitle', e.target.value)}
-                                placeholder="Descubra nossa coleção exclusiva de produtos íntimos"
+                                placeholder="Digite o subtítulo principal"
                                 className="input-field"
                                 rows={2}
                             />

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Eye, Search, Trash2, Archive, Phone, X as XIcon, AlertTriangle } from 'lucide-react'
 import api from '../services/api'
 import toast from 'react-hot-toast'
+import LoadError from '../components/LoadError'
 
 const statusOptions = [
     { value: 'pending', label: 'Pendente', color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400' },
@@ -15,6 +16,7 @@ export default function AdminOrders() {
     const [orders, setOrders] = useState([])
     const [archivedOrders, setArchivedOrders] = useState([])
     const [loading, setLoading] = useState(true)
+    const [loadError, setLoadError] = useState(false)
     const [selectedOrder, setSelectedOrder] = useState(null)
     const [filterStatus, setFilterStatus] = useState('all')
     const [searchTerm, setSearchTerm] = useState('')
@@ -33,24 +35,31 @@ export default function AdminOrders() {
 
     const loadOrders = async () => {
         setLoading(true)
+        setLoadError(false)
         try {
             const response = await api.get('/api/orders')
-            setOrders(response.data)
+            setOrders(Array.isArray(response.data) ? response.data : [])
         } catch (error) {
             console.error('Error loading orders:', error)
-            setOrders(sampleOrders)
+            setOrders([])
+            setLoadError(true)
         } finally {
             setLoading(false)
         }
     }
 
     const loadArchivedOrders = async () => {
+        setLoading(true)
+        setLoadError(false)
         try {
             const response = await api.get('/api/orders/archived')
-            setArchivedOrders(response.data)
+            setArchivedOrders(Array.isArray(response.data) ? response.data : [])
         } catch (error) {
             console.error('Error loading archived orders:', error)
             setArchivedOrders([])
+            setLoadError(true)
+        } finally {
+            setLoading(false)
         }
     }
 
@@ -90,10 +99,8 @@ export default function AdminOrders() {
             toast.success('Status atualizado!')
             loadOrders()
         } catch (error) {
-            setOrders(prev => prev.map(o =>
-                o.id === orderId ? { ...o, status: newStatus } : o
-            ))
-            toast.success('Status atualizado!')
+            console.error('Error updating order status:', error)
+            toast.error('Erro ao atualizar status')
         }
         setSelectedOrder(null)
     }
@@ -180,6 +187,8 @@ export default function AdminOrders() {
                     <div className="flex items-center justify-center h-64">
                         <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
                     </div>
+                ) : loadError ? (
+                    <LoadError onRetry={showArchived ? loadArchivedOrders : loadOrders} />
                 ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full">
@@ -282,7 +291,7 @@ export default function AdminOrders() {
                     </div>
                 )}
 
-                {!loading && filteredOrders.length === 0 && (
+                {!loading && !loadError && filteredOrders.length === 0 && (
                     <div className="p-12 text-center text-stone-500 dark:text-stone-400">
                         {showArchived ? 'Nenhum pedido arquivado encontrado.' : 'Nenhum pedido encontrado.'}
                     </div>
@@ -467,50 +476,3 @@ export default function AdminOrders() {
         </div>
     )
 }
-
-// Sample orders for development
-const sampleOrders = [
-    {
-        id: '1001',
-        customer_name: 'Maria Silva',
-        customer_phone: '(75) 98888-1234',
-        customer_email: 'maria@email.com',
-        address: 'Rua das Flores, 123, Centro - Salvador/BA',
-        payment_method: 'pix',
-        status: 'pending',
-        total: 299.80,
-        created_at: new Date().toISOString(),
-        items: [
-            { product_id: 1, name: 'Vibrador Ponto G Luxo', quantity: 1, price: 199.90 },
-            { product_id: 3, name: 'Gel Beijável Morango', quantity: 2, price: 49.95 }
-        ]
-    },
-    {
-        id: '1002',
-        customer_name: 'João Santos',
-        customer_phone: '(75) 99999-5678',
-        address: 'Av. Brasil, 456 - Feira de Santana/BA',
-        payment_method: 'cash',
-        status: 'confirmed',
-        total: 159.90,
-        created_at: new Date(Date.now() - 86400000).toISOString(),
-        items: [
-            { product_id: 2, name: 'Fantasia Enfermeira', quantity: 1, price: 159.90 }
-        ]
-    },
-    {
-        id: '1003',
-        customer_name: 'Ana Oliveira',
-        customer_phone: '(75) 97777-4321',
-        address: 'Rua do Comércio, 789 - Alagoinhas/BA',
-        payment_method: 'pix',
-        status: 'shipped',
-        total: 449.70,
-        created_at: new Date(Date.now() - 172800000).toISOString(),
-        items: [
-            { product_id: 1, name: 'Vibrador Ponto G Luxo', quantity: 2, price: 399.80 },
-            { product_id: 3, name: 'Gel Beijável', quantity: 1, price: 49.90 }
-        ]
-    },
-]
-

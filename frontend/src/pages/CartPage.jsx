@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { Trash2, Minus, Plus, ShoppingBag, ArrowLeft } from 'lucide-react'
 import { useCart } from '../contexts/CartContext'
 import SEO from '../components/SEO'
+import { getProductImage, handleImageError } from '../utils/images'
 
 export default function CartPage() {
     const { items, updateQuantity, removeItem, total, itemCount } = useCart()
@@ -54,9 +55,10 @@ export default function CartPage() {
                             {/* Image */}
                             <Link to={`/produto/${item.id}`} className="shrink-0">
                                 <img
-                                    src={item.image || 'https://via.placeholder.com/100x100?text=Produto'}
+                                    src={getProductImage(item)}
                                     alt={item.name}
                                     className="w-24 h-24 object-cover rounded"
+                                    onError={handleImageError}
                                 />
                             </Link>
 

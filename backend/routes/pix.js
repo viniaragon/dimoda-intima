@@ -2,125 +2,104 @@ import { Router } from 'express'
 import Stripe from 'stripe'
 import db from '../database-firebase.js'
 import { sendOrderEmails } from '../services/emailNotification.js'
+import {
+    CommerceValidationError,
+    getValidatedOrderForPayment,
+    sendCommerceError
+} from '../services/orderValidation.js'
+import { buildPixData, buildStripeLineItems } from '../services/paymentData.js'
 
 const router = Router()
 
-// Configuração do Stripe (para cartões)
 const stripe = process.env.STRIPE_SECRET_KEY
     ? new Stripe(process.env.STRIPE_SECRET_KEY)
     : null
 
-// URL base do frontend
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
 
-// Chave PIX da loja
-const PIX_KEY = '75983185141'
-const PIX_BENEFICIARY = "Di' Moda Íntima"
+const pixConfig = {
+    pixKey: process.env.PIX_KEY || '75983185141',
+    beneficiary: process.env.PIX_BENEFICIARY || "Di' Moda Íntima",
+    whatsappNumber: process.env.WHATSAPP_NUMBER || '5575983185141'
+}
 
-// ==================== PIX MANUAL ====================
+function assertPaymentMethod(order, expectedMethod) {
+    if (order.payment_method !== expectedMethod) {
+        throw new CommerceValidationError('Forma de pagamento incompatível com o pedido', {
+            status: 409,
+            code: 'PAYMENT_METHOD_MISMATCH'
+        })
+    }
+}
 
-// Gerar dados do PIX estático
+async function loadPixOrder(orderId) {
+    const order = await getValidatedOrderForPayment(orderId, db)
+    assertPaymentMethod(order, 'pix')
+    return order
+}
+
+// Consultar dados PIX canônicos de um pedido sem aceitar valor do navegador.
+router.get('/order/:orderId', async (req, res) => {
+    try {
+        const order = await loadPixOrder(req.params.orderId)
+        res.json(buildPixData(order, pixConfig))
+    } catch (error) {
+        console.error('[PIX Manual] Erro ao consultar pedido:', error)
+        sendCommerceError(res, error, 'Erro ao carregar dados do PIX')
+    }
+})
+
+// Gerar dados do PIX estático a partir do pedido persistido e validado.
 router.post('/create', async (req, res) => {
     try {
-        const { orderId, amount, customerName } = req.body
+        const { orderId } = req.body || {}
+        const order = await loadPixOrder(orderId)
 
-        if (!orderId || !amount) {
-            return res.status(400).json({ error: 'orderId e amount são obrigatórios' })
-        }
-
-        // Atualizar pedido com status pending
-        await db.updateOrderPayment(orderId, {
-            payment_id: `PIX_${orderId}_${Date.now()}`,
+        await db.updateOrderPayment(order.id, {
+            payment_id: `PIX_${order.id}_${Date.now()}`,
             payment_status: 'pending',
             payment_method: 'pix'
         })
 
-        console.log(`[PIX Manual] Pedido: ${orderId}, Valor: R$${amount}`)
-
-        // Retornar dados do PIX estático
-        res.json({
-            pix_key: PIX_KEY,
-            pix_key_type: 'phone',
-            beneficiary: PIX_BENEFICIARY,
-            amount: amount,
-            order_id: orderId,
-            // Mensagem para o cliente incluir na descrição do PIX
-            description: `Pedido #${orderId}`,
-            // WhatsApp para enviar comprovante
-            whatsapp_number: '5575983185141',
-            whatsapp_message: `Olá! Acabei de fazer o pedido #${orderId} no valor de R$${amount.toFixed(2)}. Segue o comprovante de pagamento.`
-        })
+        console.log(`[PIX Manual] Pedido: ${order.id}, Valor validado: R$${order.total.toFixed(2)}`)
+        res.json(buildPixData(order, pixConfig))
     } catch (error) {
         console.error('[PIX Manual] Erro:', error)
-        res.status(500).json({
-            error: 'Erro ao gerar dados do PIX',
-            details: error.message
-        })
+        sendCommerceError(res, error, 'Erro ao gerar dados do PIX')
     }
 })
 
-// ==================== CARTÃO (STRIPE) ====================
-
-// Criar sessão de checkout para cartão
+// Criar sessão de checkout para cartão usando somente o pedido canônico.
 router.post('/card/create', async (req, res) => {
     try {
         if (!stripe) {
-            return res.status(500).json({
-                error: 'Stripe não configurado. Adicione STRIPE_SECRET_KEY ao .env'
-            })
+            return res.status(503).json({ error: 'Pagamento por cartão indisponível' })
         }
 
-        const { orderId, amount, customerEmail, customerName, items } = req.body
+        const { orderId } = req.body || {}
+        const order = await getValidatedOrderForPayment(orderId, db)
+        assertPaymentMethod(order, 'card')
 
-        if (!orderId || !amount) {
-            return res.status(400).json({ error: 'orderId e amount são obrigatórios' })
-        }
-
-        // Criar line items para o Stripe
-        const lineItems = items?.length > 0
-            ? items.map(item => ({
-                price_data: {
-                    currency: 'brl',
-                    product_data: {
-                        name: item.name || `Produto`,
-                    },
-                    unit_amount: Math.round(item.price * 100), // Stripe usa centavos
-                },
-                quantity: item.quantity || 1,
-            }))
-            : [{
-                price_data: {
-                    currency: 'brl',
-                    product_data: {
-                        name: `Pedido #${orderId}`,
-                    },
-                    unit_amount: Math.round(amount * 100),
-                },
-                quantity: 1,
-            }]
-
-        // Criar sessão de checkout do Stripe (apenas cartão)
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
-            line_items: lineItems,
+            line_items: buildStripeLineItems(order),
             mode: 'payment',
-            success_url: `${FRONTEND_URL}/pedido/${orderId}?success=true&session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${FRONTEND_URL}/pedido/${orderId}?canceled=true`,
-            customer_email: customerEmail || undefined,
+            success_url: `${FRONTEND_URL}/pedido/${order.id}?success=true&session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${FRONTEND_URL}/pedido/${order.id}?canceled=true`,
+            customer_email: order.customer_email || undefined,
             metadata: {
-                order_id: orderId.toString(),
-                customer_name: customerName || ''
+                order_id: order.id,
+                customer_name: order.customer_name || ''
             }
         })
 
-        // Atualizar pedido com session_id do Stripe
-        await db.updateOrderPayment(orderId, {
+        await db.updateOrderPayment(order.id, {
             payment_id: session.id,
             payment_status: 'pending',
             payment_method: 'card'
         })
 
-        console.log(`[Stripe Card] Sessão criada - Pedido: ${orderId}, Session: ${session.id}`)
+        console.log(`[Stripe Card] Sessão criada - Pedido: ${order.id}, Session: ${session.id}`)
 
         res.json({
             session_id: session.id,
@@ -128,22 +107,29 @@ router.post('/card/create', async (req, res) => {
         })
     } catch (error) {
         console.error('[Stripe Card] Erro:', error)
-        res.status(500).json({
-            error: 'Erro ao criar sessão de pagamento',
-            details: error.message
-        })
+        sendCommerceError(res, error, 'Erro ao criar sessão de pagamento')
     }
 })
 
-// Consultar status do pagamento (Stripe)
+// Consultar status do pagamento e conferir o valor contra o pedido persistido.
 router.get('/status/:sessionId', async (req, res) => {
     try {
         if (!stripe) {
-            return res.status(500).json({ error: 'Stripe não configurado' })
+            return res.status(503).json({ error: 'Pagamento por cartão indisponível' })
         }
 
-        const { sessionId } = req.params
-        const session = await stripe.checkout.sessions.retrieve(sessionId)
+        const session = await stripe.checkout.sessions.retrieve(req.params.sessionId)
+        const orderId = session.metadata?.order_id
+        const order = orderId ? await db.getOrderById(orderId) : null
+
+        if (!order) {
+            return res.status(404).json({ error: 'Pedido não encontrado' })
+        }
+
+        const expectedAmount = Math.round(Number(order.total) * 100)
+        if (!Number.isFinite(expectedAmount) || expectedAmount !== session.amount_total) {
+            return res.status(409).json({ error: 'Valor do pagamento não corresponde ao pedido' })
+        }
 
         res.json({
             session_id: session.id,
@@ -154,39 +140,47 @@ router.get('/status/:sessionId', async (req, res) => {
         })
     } catch (error) {
         console.error('[Stripe] Erro ao consultar status:', error)
-        res.status(500).json({
-            error: 'Erro ao consultar status',
-            details: error.message
-        })
+        res.status(500).json({ error: 'Erro ao consultar status' })
     }
 })
 
-// Webhook do Stripe
+// Webhook do Stripe. A rota recebe corpo bruto no server.js para validar a assinatura.
 router.post('/webhook', async (req, res) => {
-    const sig = req.headers['stripe-signature']
-    let event
+    const signature = req.headers['stripe-signature']
 
-    try {
-        if (stripe && process.env.STRIPE_WEBHOOK_SECRET && sig) {
-            event = stripe.webhooks.constructEvent(
-                req.body,
-                sig,
-                process.env.STRIPE_WEBHOOK_SECRET
-            )
-        } else {
-            event = req.body
-        }
-    } catch (err) {
-        console.error('[Webhook] Assinatura inválida:', err.message)
-        return res.status(400).send(`Webhook Error: ${err.message}`)
+    if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) {
+        return res.status(503).json({ error: 'Webhook do Stripe não configurado' })
     }
 
-    // Processar eventos
+    if (!signature) {
+        return res.status(400).json({ error: 'Assinatura do Stripe ausente' })
+    }
+
+    let event
+    try {
+        event = stripe.webhooks.constructEvent(
+            req.body,
+            signature,
+            process.env.STRIPE_WEBHOOK_SECRET
+        )
+    } catch (error) {
+        console.error('[Webhook] Assinatura inválida:', error.message)
+        return res.status(400).send('Webhook Error')
+    }
+
     if (event.type === 'checkout.session.completed') {
         const session = event.data.object
         const orderId = session.metadata?.order_id
 
         if (orderId) {
+            const order = await db.getOrderById(orderId)
+            const expectedAmount = Math.round(Number(order?.total) * 100)
+
+            if (!order || !Number.isFinite(expectedAmount) || expectedAmount !== session.amount_total) {
+                console.error(`[Webhook] Valor ou pedido inválido para sessão ${session.id}`)
+                return res.status(409).json({ error: 'Pagamento não corresponde ao pedido' })
+            }
+
             await db.updateOrderPayment(orderId, {
                 payment_id: session.id,
                 payment_status: session.payment_status
@@ -195,17 +189,9 @@ router.post('/webhook', async (req, res) => {
             if (session.payment_status === 'paid') {
                 await db.updateOrderStatus(orderId, 'confirmed')
                 console.log(`[Webhook] Pedido ${orderId} confirmado!`)
-                
-                // Enviar email de confirmação de pagamento
-                try {
-                    const order = await db.getOrderById(orderId)
-                    if (order) {
-                        sendOrderEmails(order, true)
-                            .catch(err => console.error('Erro ao enviar email de confirmação Stripe', err))
-                    }
-                } catch (e) {
-                    console.error('Erro ao buscar pedido para email', e)
-                }
+
+                sendOrderEmails({ ...order, status: 'confirmed', payment_status: 'paid' }, true)
+                    .catch(error => console.error('Erro ao enviar email de confirmação Stripe', error))
             }
         }
     }

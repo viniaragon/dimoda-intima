@@ -4,6 +4,7 @@ import { ChevronRight, Minus, Plus, ShoppingCart, Heart } from 'lucide-react'
 import { useCart } from '../contexts/CartContext'
 import api from '../services/api'
 import ImageGallery from '../components/ImageGallery'
+import LoadError from '../components/LoadError'
 import SEO from '../components/SEO'
 
 export default function ProductPage() {
@@ -11,6 +12,8 @@ export default function ProductPage() {
     const { addItem } = useCart()
     const [product, setProduct] = useState(null)
     const [loading, setLoading] = useState(true)
+    const [loadError, setLoadError] = useState(false)
+    const [notFound, setNotFound] = useState(false)
     const [quantity, setQuantity] = useState(1)
 
     useEffect(() => {
@@ -19,24 +22,20 @@ export default function ProductPage() {
 
     const loadProduct = async () => {
         setLoading(true)
+        setLoadError(false)
+        setNotFound(false)
+        setProduct(null)
+        setQuantity(1)
         try {
             const response = await api.get(`/api/products/${id}`)
             setProduct(response.data)
         } catch (error) {
             console.error('Error loading product:', error)
-            // Sample product for development
-            setProduct({
-                id: parseInt(id),
-                name: 'Vibrador Ponto G Luxo',
-                price: 199.90,
-                description: 'Vibrador de alta qualidade com acabamento premium. Possui 10 modos de vibração, é à prova d\'água e recarregável via USB. Material body-safe, silicone médico hipoalergênico.',
-                images: ['https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?w=800&h=800&fit=crop'],
-                image: 'https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?w=800&h=800&fit=crop',
-                category_slug: 'vibrador',
-                category_name: 'Vibrador',
-                stock: 15,
-                featured: true
-            })
+            if (error.response?.status === 404) {
+                setNotFound(true)
+            } else {
+                setLoadError(true)
+            }
         } finally {
             setLoading(false)
         }
@@ -68,23 +67,37 @@ export default function ProductPage() {
 
     if (loading) {
         return (
-            <div className="flex justify-center py-24">
-                <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+            <div className="py-12 px-6 md:px-12" data-testid="product-skeleton">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 animate-pulse">
+                    <div className="aspect-square rounded-lg bg-stone-200 dark:bg-stone-800" />
+                    <div className="space-y-6 py-4">
+                        <div className="h-10 rounded bg-stone-200 dark:bg-stone-800 w-3/4" />
+                        <div className="h-8 rounded bg-stone-200 dark:bg-stone-800 w-1/3" />
+                        <div className="h-28 rounded bg-stone-200 dark:bg-stone-800" />
+                    </div>
+                </div>
             </div>
         )
     }
 
-    if (!product) {
+    if (notFound) {
         return (
             <div className="text-center py-24">
-                <p className="text-stone-500 dark:text-stone-400 text-lg mb-4">
-                    Produto não encontrado.
+                <h1 className="font-display text-3xl text-stone-800 dark:text-white mb-4">
+                    Produto não encontrado
+                </h1>
+                <p className="text-stone-500 dark:text-stone-400 text-lg mb-6">
+                    O produto pode ter sido removido ou o endereço está incorreto.
                 </p>
                 <Link to="/" className="btn-primary">
                     Voltar ao Início
                 </Link>
             </div>
         )
+    }
+
+    if (loadError || !product) {
+        return <LoadError onRetry={loadProduct} className="py-24" />
     }
 
     return (
@@ -187,7 +200,7 @@ export default function ProductPage() {
                     <div className="flex flex-col sm:flex-row gap-4">
                         <button
                             onClick={handleAddToCart}
-                            disabled={product.stock === 0}
+                            disabled={!Number.isFinite(Number(product.stock)) || Number(product.stock) <= 0}
                             className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             <ShoppingCart className="w-5 h-5" />

@@ -3,6 +3,7 @@ import { useParams, Link, useSearchParams, useLocation } from 'react-router-dom'
 import { Check, QrCode, Home, Loader2, CheckCircle2, XCircle, Copy, Banknote } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../services/api'
+import LoadError from '../components/LoadError'
 
 export default function OrderConfirmationPage() {
     const { id } = useParams()
@@ -11,9 +12,11 @@ export default function OrderConfirmationPage() {
     const [copied, setCopied] = useState(false)
     const [paymentStatus, setPaymentStatus] = useState('checking')
     const [orderData, setOrderData] = useState(null)
+    const [paymentData, setPaymentData] = useState(location.state?.pixData || null)
+    const [retryKey, setRetryKey] = useState(0)
 
     // Dados vindos do checkout
-    const pixData = location.state?.pixData
+    const initialPixData = location.state?.pixData
     const stateOrderData = location.state?.orderData
 
     // Parâmetros da URL (vindos do Stripe)
@@ -21,9 +24,8 @@ export default function OrderConfirmationPage() {
     const canceled = searchParams.get('canceled')
     const sessionId = searchParams.get('session_id')
 
-    // Chave PIX padrão (fallback)
-    const pixKey = pixData?.pix_key || '75983185141'
-    const whatsappNumber = pixData?.whatsapp_number || '5575983185141'
+    const pixKey = paymentData?.pix_key || ''
+    const whatsappNumber = paymentData?.whatsapp_number || ''
 
     const formatPrice = (price) => {
         return new Intl.NumberFormat('pt-BR', {
@@ -33,6 +35,7 @@ export default function OrderConfirmationPage() {
     }
 
     const copyPixKey = () => {
+        if (!pixKey) return
         navigator.clipboard.writeText(pixKey)
         setCopied(true)
         toast.success('Chave PIX copiada!')
@@ -41,19 +44,25 @@ export default function OrderConfirmationPage() {
 
     // Verificar status do pagamento
     useEffect(() => {
+        let active = true
+
         const checkStatus = async () => {
+            setPaymentStatus('checking')
+
             // Cartão pago via Stripe
             if (success === 'true' && sessionId) {
                 try {
                     const response = await api.get(`/api/pix/status/${sessionId}`)
+                    if (!active) return
                     if (response.data.payment_status === 'paid') {
                         setPaymentStatus('approved')
                         toast.success('Pagamento confirmado! 🎉')
                     } else {
-                        setPaymentStatus('approved') // Assume sucesso se veio da success_url
+                        setPaymentStatus('pending')
                     }
                 } catch (error) {
-                    setPaymentStatus('approved')
+                    console.error('Erro ao consultar pagamento:', error)
+                    if (active) setPaymentStatus('error')
                 }
                 return
             }
@@ -65,7 +74,8 @@ export default function OrderConfirmationPage() {
             }
 
             // PIX Manual - mostra tela de PIX
-            if (pixData) {
+            if (initialPixData) {
+                setPaymentData(initialPixData)
                 setPaymentStatus('pix')
                 setOrderData(stateOrderData)
                 return
@@ -74,6 +84,7 @@ export default function OrderConfirmationPage() {
             // Buscar dados do pedido
             try {
                 const response = await api.get(`/api/orders/${id}`)
+                if (!active) return
                 setOrderData(response.data)
 
                 if (response.data.payment_status === 'paid') {
@@ -81,34 +92,39 @@ export default function OrderConfirmationPage() {
                 } else if (response.data.payment_method === 'cash') {
                     setPaymentStatus('cash')
                 } else if (response.data.payment_method === 'pix') {
+                    const pixResponse = await api.get(`/api/pix/order/${id}`)
+                    if (!active) return
+                    setPaymentData(pixResponse.data)
                     setPaymentStatus('pix')
                 } else {
                     setPaymentStatus('pending')
                 }
             } catch (error) {
-                // Se veio do checkout, assume que é PIX
-                if (stateOrderData) {
-                    setOrderData(stateOrderData)
-                    setPaymentStatus(stateOrderData.payment_method === 'cash' ? 'cash' : 'pix')
-                } else {
-                    setPaymentStatus('pending')
-                }
+                console.error('Erro ao carregar pedido:', error)
+                if (!active) return
+                setPaymentStatus(error.response?.status === 404 ? 'not-found' : 'error')
             }
         }
 
         checkStatus()
-    }, [id, success, canceled, sessionId, pixData, stateOrderData])
+
+        return () => {
+            active = false
+        }
+    }, [id, success, canceled, sessionId, initialPixData, stateOrderData, retryKey])
 
     // Mensagem WhatsApp
-    const total = orderData?.total || pixData?.amount || 0
+    const total = orderData?.total || paymentData?.amount || 0
     const whatsappMessage = encodeURIComponent(
-        pixData?.whatsapp_message ||
+        paymentData?.whatsapp_message ||
         `Olá! Acabei de fazer o pedido #${id}${total ? ` no valor de ${formatPrice(total)}` : ''}. Segue o comprovante de pagamento.`
     )
-    const whatsappLink = `https://wa.me/${whatsappNumber}?text=${whatsappMessage}`
+    const whatsappLink = whatsappNumber
+        ? `https://wa.me/${whatsappNumber}?text=${whatsappMessage}`
+        : ''
 
     // WhatsApp Button Component
-    const WhatsAppButton = ({ text = 'Enviar Comprovante no WhatsApp' }) => (
+    const WhatsAppButton = ({ text = 'Enviar Comprovante no WhatsApp' }) => whatsappLink ? (
         <a
             href={whatsappLink}
             target="_blank"
@@ -120,7 +136,7 @@ export default function OrderConfirmationPage() {
             </svg>
             {text}
         </a>
-    )
+    ) : null
 
     // Renderização baseada no status
     const renderContent = () => {
@@ -189,7 +205,7 @@ export default function OrderConfirmationPage() {
                             <div className="text-center mb-4">
                                 <p className="text-sm text-stone-500">Beneficiário</p>
                                 <p className="font-bold text-stone-800 dark:text-white">
-                                    {pixData?.beneficiary || "Di' Moda Íntima"}
+                                    {paymentData?.beneficiary || "Di' Moda Íntima"}
                                 </p>
                             </div>
 
@@ -298,14 +314,35 @@ export default function OrderConfirmationPage() {
                     </>
                 )
 
-            default:
+            case 'not-found':
+                return (
+                    <>
+                        <XCircle className="w-20 h-20 text-stone-400 mx-auto mb-6" />
+                        <h1 className="font-display text-4xl text-stone-800 dark:text-white mb-4">
+                            Pedido não encontrado
+                        </h1>
+                        <p className="text-stone-500 dark:text-stone-400 mb-8">
+                            Confira o endereço informado ou volte para a loja.
+                        </p>
+                    </>
+                )
+
+            case 'error':
+                return (
+                    <LoadError
+                        onRetry={() => setRetryKey(current => current + 1)}
+                        className="py-4"
+                    />
+                )
+
+            case 'pending':
                 return (
                     <>
                         <div className="w-24 h-24 bg-stone-100 dark:bg-stone-800 rounded-full flex items-center justify-center mx-auto mb-8">
-                            <Check className="w-12 h-12 text-stone-600 dark:text-stone-400" />
+                            <Loader2 className="w-12 h-12 text-stone-600 dark:text-stone-400" />
                         </div>
                         <h1 className="font-display text-4xl text-stone-800 dark:text-white mb-4">
-                            Pedido Recebido!
+                            Pagamento pendente
                         </h1>
                         <p className="text-stone-500 mb-8">
                             Pedido: <span className="font-mono font-bold text-primary">#{id}</span>
@@ -313,6 +350,9 @@ export default function OrderConfirmationPage() {
                         <WhatsAppButton text="Falar no WhatsApp" />
                     </>
                 )
+
+            default:
+                return null
         }
     }
 

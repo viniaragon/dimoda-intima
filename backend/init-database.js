@@ -94,12 +94,20 @@ async function initDatabase() {
 
   console.log('✅ Tabelas criadas')
 
-  // Check if admin user exists
-  const adminCheck = db.exec("SELECT id FROM users WHERE email = 'admin@dimoda.com'")
-  if (adminCheck.length === 0 || adminCheck[0].values.length === 0) {
-    const hashedPassword = bcrypt.hashSync('admin123', 10)
-    db.run("INSERT INTO users (email, password, role) VALUES (?, ?, ?)", ['admin@dimoda.com', hashedPassword, 'admin'])
-    console.log('✅ Usuário admin criado (admin@dimoda.com / admin123)')
+  // Bootstrap administrativo somente com credenciais explícitas de ambiente.
+  const initialAdminEmail = process.env.INITIAL_ADMIN_EMAIL
+  const initialAdminPassword = process.env.INITIAL_ADMIN_PASSWORD
+  if (initialAdminEmail && initialAdminPassword) {
+    const adminCheck = db.prepare('SELECT id FROM users WHERE email = ?')
+    adminCheck.bind([initialAdminEmail])
+    const adminExists = adminCheck.step()
+    adminCheck.free()
+
+    if (!adminExists) {
+      const hashedPassword = bcrypt.hashSync(initialAdminPassword, 10)
+      db.run('INSERT INTO users (email, password, role) VALUES (?, ?, ?)', [initialAdminEmail, hashedPassword, 'admin'])
+      console.log('✅ Usuário admin inicial criado')
+    }
   }
 
   // Insert default categories
@@ -123,29 +131,6 @@ async function initDatabase() {
   }
   console.log('✅ Categorias criadas')
 
-  // Insert sample products if none exist
-  const productsCheck = db.exec("SELECT COUNT(*) as count FROM products")
-  const productCount = productsCheck[0]?.values[0]?.[0] || 0
-
-  if (productCount === 0) {
-    const sampleProducts = [
-      { name: 'Vibrador Ponto G Luxo', description: 'Vibrador de alta qualidade com 10 modos de vibração. Silicone médico, recarregável via USB.', price: 199.90, category_slug: 'vibrador', stock: 15, featured: 1, image: 'https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?w=400' },
-      { name: 'Vibrador Bullet Discreto', description: 'Compacto e potente, ideal para iniciantes. À prova d\'água.', price: 79.90, category_slug: 'vibrador', stock: 20, featured: 1, image: 'https://images.unsplash.com/photo-1596462502278-27bfdc403348?w=400' },
-      { name: 'Fantasia Enfermeira Premium', description: 'Conjunto completo com jaleco, touca e estetoscópio decorativo.', price: 159.90, category_slug: 'fantasia', stock: 8, featured: 1, image: 'https://images.unsplash.com/photo-1558171813-4c088753af8f?w=400' },
-      { name: 'Gel Beijável Morango', description: 'Gel comestível sabor morango. Aquece ao soprar. 35ml.', price: 39.90, category_slug: 'gel-beijavel', stock: 30, featured: 1, image: 'https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=400' },
-      { name: 'Energético Power Max', description: 'Suplemento para performance. 60 cápsulas. Resultados em 30 minutos.', price: 89.90, category_slug: 'energetico-sexual', stock: 18, featured: 1, image: 'https://images.unsplash.com/photo-1559056199-641a0ac8b55e?w=400' },
-      { name: 'Gel Excitante Feminino', description: 'Gel estimulante com efeito vibratório. Aumenta a sensibilidade. 15ml.', price: 49.90, category_slug: 'gel-feminino', stock: 22, featured: 1, image: 'https://images.unsplash.com/photo-1571781926291-c477ebfd024b?w=400' },
-    ]
-
-    for (const product of sampleProducts) {
-      db.run(`
-        INSERT INTO products (name, description, price, category_slug, stock, featured, image)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `, [product.name, product.description, product.price, product.category_slug, product.stock, product.featured, product.image])
-    }
-    console.log('✅ Produtos de exemplo criados')
-  }
-
   // Save database
   const data = db.export()
   const buffer = Buffer.from(data)
@@ -153,10 +138,6 @@ async function initDatabase() {
 
   console.log('')
   console.log('🎉 Banco de dados inicializado com sucesso!')
-  console.log('')
-  console.log('Credenciais de admin:')
-  console.log('  Email: admin@dimoda.com')
-  console.log('  Senha: admin123')
   console.log('')
 
   db.close()

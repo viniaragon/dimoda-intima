@@ -8,7 +8,10 @@ const router = Router()
 router.get('/', async (req, res) => {
     try {
         const config = await db.getSiteConfig()
-        res.json(config || {})
+        if (!config) {
+            return res.status(404).json({ error: 'Configuração do site não encontrada' })
+        }
+        res.json(config)
     } catch (error) {
         console.error('Error fetching config:', error)
         res.status(500).json({ error: 'Erro ao buscar configurações' })

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Package, ShoppingBag, DollarSign, TrendingUp, ArrowRight, Calendar, Archive, RotateCcw, AlertTriangle } from 'lucide-react'
 import api from '../services/api'
 import toast from 'react-hot-toast'
+import LoadError from '../components/LoadError'
 
 export default function AdminDashboard() {
     const [stats, setStats] = useState({
@@ -13,6 +14,7 @@ export default function AdminDashboard() {
     })
     const [recentOrders, setRecentOrders] = useState([])
     const [loading, setLoading] = useState(true)
+    const [loadError, setLoadError] = useState(false)
     const [dateRange, setDateRange] = useState('all')
     const [customStartDate, setCustomStartDate] = useState('')
     const [customEndDate, setCustomEndDate] = useState('')
@@ -66,6 +68,8 @@ export default function AdminDashboard() {
     }
 
     const loadDashboardData = async () => {
+        setLoading(true)
+        setLoadError(false)
         try {
             const { startDate, endDate } = getDateRange()
             let statsUrl = '/api/stats'
@@ -85,16 +89,13 @@ export default function AdminDashboard() {
         } catch (error) {
             console.error('Error loading dashboard:', error)
             setStats({
-                totalProducts: 25,
-                totalOrders: 48,
-                pendingOrders: 5,
-                totalRevenue: 12450.00
+                totalProducts: 0,
+                totalOrders: 0,
+                pendingOrders: 0,
+                totalRevenue: 0
             })
-            setRecentOrders([
-                { id: 1001, customer_name: 'Maria Silva', total: 299.80, status: 'pending', created_at: new Date().toISOString() },
-                { id: 1002, customer_name: 'João Santos', total: 159.90, status: 'confirmed', created_at: new Date().toISOString() },
-                { id: 1003, customer_name: 'Ana Oliveira', total: 449.70, status: 'shipped', created_at: new Date().toISOString() },
-            ])
+            setRecentOrders([])
+            setLoadError(true)
         } finally {
             setLoading(false)
         }
@@ -167,6 +168,10 @@ export default function AdminDashboard() {
                 <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
             </div>
         )
+    }
+
+    if (loadError) {
+        return <LoadError onRetry={loadDashboardData} className="min-h-64" />
     }
 
     return (

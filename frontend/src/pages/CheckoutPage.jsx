@@ -5,6 +5,7 @@ import { useCart } from '../contexts/CartContext'
 import api from '../services/api'
 import toast from 'react-hot-toast'
 import SEO from '../components/SEO'
+import { getProductImage, handleImageError } from '../utils/images'
 
 const paymentMethods = [
     { id: 'pix', name: 'PIX', icon: QrCode, description: 'Pagamento instantâneo' },
@@ -52,24 +53,20 @@ export default function CheckoutPage() {
                 notes: customerData.notes,
                 items: items.map(item => ({
                     product_id: item.id,
-                    name: item.name,
-                    quantity: item.quantity,
-                    price: item.price
-                })),
-                total
+                    quantity: item.quantity
+                }))
             }
 
             // Criar pedido
             const orderResponse = await api.post('/api/orders', orderData)
-            const orderId = orderResponse.data.id
+            const canonicalOrder = orderResponse.data
+            const orderId = canonicalOrder.id
 
             // PIX Manual - Navega para tela de confirmação com dados do PIX
             if (paymentMethod === 'pix') {
                 try {
                     const pixResponse = await api.post('/api/pix/create', {
-                        orderId,
-                        amount: total,
-                        customerName: customerData.name
+                        orderId
                     })
 
                     clearCart()
@@ -79,16 +76,16 @@ export default function CheckoutPage() {
                     navigate(`/pedido/${orderId}`, {
                         state: {
                             pixData: pixResponse.data,
-                            orderData: { ...orderData, id: orderId }
+                            orderData: canonicalOrder
                         }
                     })
                     return
                 } catch (pixError) {
                     console.error('Erro ao gerar PIX:', pixError)
-                    // Mesmo com erro, continua para confirmação (fallback)
+                    toast.error('Pedido criado, mas não foi possível carregar os dados do PIX.')
                     clearCart()
                     navigate(`/pedido/${orderId}`, {
-                        state: { orderData: { ...orderData, id: orderId } }
+                        state: { orderData: canonicalOrder, paymentSetupError: true }
                     })
                     return
                 }
@@ -98,11 +95,7 @@ export default function CheckoutPage() {
             if (paymentMethod === 'card') {
                 try {
                     const cardResponse = await api.post('/api/pix/card/create', {
-                        orderId,
-                        amount: total,
-                        customerEmail: customerData.email,
-                        customerName: customerData.name,
-                        items: orderData.items
+                        orderId
                     })
 
                     clearCart()
@@ -123,7 +116,7 @@ export default function CheckoutPage() {
             clearCart()
             toast.success('Pedido realizado com sucesso!')
             navigate(`/pedido/${orderId}`, {
-                state: { orderData: { ...orderData, id: orderId } }
+                state: { orderData: canonicalOrder }
             })
         } catch (error) {
             console.error('Error placing order:', error)
@@ -409,9 +402,10 @@ export default function CheckoutPage() {
                             {items.map(item => (
                                 <div key={item.id} className="flex gap-3 text-sm">
                                     <img
-                                        src={item.image}
+                                        src={getProductImage(item)}
                                         alt={item.name}
                                         className="w-12 h-12 object-cover rounded"
+                                        onError={handleImageError}
                                     />
                                     <div className="flex-1 min-w-0">
                                         <p className="text-stone-800 dark:text-white truncate">{item.name}</p>

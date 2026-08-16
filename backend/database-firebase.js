@@ -339,18 +339,24 @@ export async function updateSiteConfig(config) {
 export async function initDatabase() {
     console.log('🔥 Connecting to Firebase Firestore...')
 
-    // Check if admin user exists
-    const adminUser = await getUserByEmail('admin@dimoda.com')
-    if (!adminUser) {
-        console.log('Creating admin user...')
-        const bcrypt = await import('bcryptjs')
-        const hashedPassword = bcrypt.default.hashSync('3970402dimoda', 10)
-        await createUser({
-            email: 'admin@dimoda.com',
-            password: hashedPassword,
-            role: 'admin'
-        })
-        console.log('✅ Admin user created (admin@dimoda.com / 3970402dimoda)')
+    // Bootstrap administrativo somente com credenciais explícitas de ambiente.
+    const initialAdminEmail = process.env.INITIAL_ADMIN_EMAIL
+    const initialAdminPassword = process.env.INITIAL_ADMIN_PASSWORD
+    if (initialAdminEmail && initialAdminPassword) {
+        const adminUser = await getUserByEmail(initialAdminEmail)
+        if (!adminUser) {
+            console.log('Creating initial admin user...')
+            const bcrypt = await import('bcryptjs')
+            const hashedPassword = bcrypt.default.hashSync(initialAdminPassword, 10)
+            await createUser({
+                email: initialAdminEmail,
+                password: hashedPassword,
+                role: 'admin'
+            })
+            console.log('✅ Initial admin user created')
+        }
+    } else {
+        console.log('ℹ️ Initial admin bootstrap disabled')
     }
 
     // Check if categories exist
@@ -373,39 +379,8 @@ export async function initDatabase() {
         console.log('✅ Default categories created')
     }
 
-    // Check if products exist
-    const products = await getAllProducts()
-    if (products.length === 0) {
-        console.log('Creating sample products...')
-        const sampleProducts = [
-            { name: 'Vibrador Ponto G Luxo', description: 'Vibrador de alta qualidade com 10 modos de vibração.', price: 199.90, category_slug: 'vibrador', stock: 15, featured: true, image: 'https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?w=400' },
-            { name: 'Vibrador Bullet Discreto', description: 'Compacto e potente, ideal para iniciantes.', price: 79.90, category_slug: 'vibrador', stock: 20, featured: true, image: 'https://images.unsplash.com/photo-1596462502278-27bfdc403348?w=400' },
-            { name: 'Fantasia Enfermeira Premium', description: 'Conjunto completo com jaleco, touca e estetoscópio.', price: 159.90, category_slug: 'fantasia', stock: 8, featured: true, image: 'https://images.unsplash.com/photo-1558171813-4c088753af8f?w=400' },
-            { name: 'Gel Beijável Morango', description: 'Gel comestível sabor morango. Aquece ao soprar.', price: 39.90, category_slug: 'gel-beijavel', stock: 30, featured: true, image: 'https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=400' },
-            { name: 'Energético Power Max', description: 'Suplemento para performance. 60 cápsulas.', price: 89.90, category_slug: 'energetico-sexual', stock: 18, featured: true, image: 'https://images.unsplash.com/photo-1559056199-641a0ac8b55e?w=400' },
-            { name: 'Gel Excitante Feminino', description: 'Gel estimulante com efeito vibratório.', price: 49.90, category_slug: 'gel-feminino', stock: 22, featured: true, image: 'https://images.unsplash.com/photo-1571781926291-c477ebfd024b?w=400' },
-        ]
-        for (const product of sampleProducts) {
-            await createProduct(product)
-        }
-        console.log('✅ Sample products created')
-    }
-
-    // Initialize site config if not exists
-    const siteConfig = await getSiteConfig()
-    if (!siteConfig) {
-        console.log('Creating default site config...')
-        await updateSiteConfig({
-            heroTitle: 'Elegância e Conforto em Casa',
-            heroSubtitle: 'Descubra nossa coleção exclusiva de produtos íntimos',
-            heroImage: 'https://images.unsplash.com/photo-1616621859117-c5a0d0f0f54d?w=1200&h=500&fit=crop',
-            featuredTitle: 'Produtos em Destaque',
-            whyChooseTitle: "Por que escolher a Di' Moda Íntima?",
-            pixKey: '75983185141',
-            whatsappNumber: '5575983185141'
-        })
-        console.log('✅ Default site config created')
-    }
+    // Produtos e configuração visual são dados reais e devem ser cadastrados
+    // explicitamente pelo painel; o startup nunca injeta conteúdo demonstrativo.
 
     console.log('🎉 Firebase Firestore initialized successfully!')
 }

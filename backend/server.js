@@ -26,6 +26,7 @@ const PORT = process.env.PORT || 3001
 
 // Middleware
 app.use(cors())
+app.use('/api/pix/webhook', express.raw({ type: 'application/json' }))
 app.use(express.json())
 
 // Serve uploaded files
@@ -55,12 +56,7 @@ async function startServer() {
                 res.json(stats)
             } catch (error) {
                 console.error('Stats error:', error)
-                res.json({
-                    totalProducts: 0,
-                    totalOrders: 0,
-                    pendingOrders: 0,
-                    totalRevenue: 0
-                })
+                res.status(500).json({ error: 'Erro ao buscar indicadores' })
             }
         })
 

@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { ShoppingCart } from 'lucide-react'
 import { useCart } from '../contexts/CartContext'
+import { getProductImage, handleImageError } from '../utils/images'
 
 export default function ProductCard({ product }) {
     const { addItem } = useCart()
@@ -18,18 +19,13 @@ export default function ProductCard({ product }) {
         }).format(price)
     }
 
-    // Get first image (supports both 'images' array and legacy 'image' string)
-    const getImage = () => {
-        if (product.images && Array.isArray(product.images) && product.images.length > 0) {
-            return product.images[0]
-        }
-        return product.image || 'https://via.placeholder.com/400x500?text=Sem+Imagem'
-    }
-
     // Get image fit style (contain = shows full image, cover = fills and crops)
     const getImageFit = () => {
         return product.image_fit === 'cover' ? 'object-cover' : 'object-contain'
     }
+
+    const stock = Number(product.stock)
+    const outOfStock = !Number.isFinite(stock) || stock <= 0
 
     return (
         <Link
@@ -38,16 +34,17 @@ export default function ProductCard({ product }) {
         >
             <div className={`h-[300px] overflow-hidden relative ${product.image_fit === 'contain' ? 'bg-stone-100 dark:bg-stone-800' : ''}`}>
                 <img
-                    src={getImage()}
+                    src={getProductImage(product)}
                     alt={product.name}
                     className={`w-full h-full ${getImageFit()} transition-transform duration-500 group-hover:scale-105`}
+                    onError={handleImageError}
                 />
                 {product.featured && (
                     <span className="absolute top-3 left-3 bg-primary text-stone-900 text-xs font-bold px-3 py-1 rounded">
                         Destaque
                     </span>
                 )}
-                {product.stock === 0 && (
+                {outOfStock && (
                     <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                         <span className="text-white font-bold text-lg">Esgotado</span>
                     </div>
@@ -62,7 +59,7 @@ export default function ProductCard({ product }) {
                 </p>
                 <button
                     onClick={handleAddToCart}
-                    disabled={product.stock === 0}
+                    disabled={outOfStock}
                     className="mt-auto w-full btn-secondary flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     <ShoppingCart className="w-4 h-4" />
