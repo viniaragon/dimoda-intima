@@ -16,7 +16,7 @@ export async function verifyRecipient(client, phone) {
   return { state: 'ready', target: resolved._serialized };
 }
 
-export function createGateway({ token, phone, dbPath, adapter, ui = '', timeoutMs = 30000, maxPerHour = 30 }) {
+export function createGateway({ token, phone, dbPath, adapter, ui = '', timeoutMs = 30000, maxPerHour = 30, report = () => {} }) {
   if (!/^[A-Za-z0-9_-]{43,}$/.test(token ?? '') || new Set(token).size < 12) throw new Error('GATEWAY_TOKEN must be a random base64url token of at least 32 bytes');
   const allowed = normalizePhone(phone);
   if (!allowed) throw new Error('ALLOWED_PHONE invalid');
@@ -38,12 +38,12 @@ export function createGateway({ token, phone, dbPath, adapter, ui = '', timeoutM
       const item = queue.shift();
       if (!adapter.status().canSend) { set(item.key, 'failed'); continue; }
       set(item.key, 'sending');
-      const timer = setTimeout(() => set(item.key, 'unknown'), timeoutMs);
+      const timer = setTimeout(() => { set(item.key, 'unknown'); report('send_timeout'); }, timeoutMs);
       try {
         // Await actual completion even after timeout: never overlap an ambiguous send.
         await adapter.send(item.message);
         set(item.key, 'sent');
-      } catch { set(item.key, 'unknown'); }
+      } catch (error) { set(item.key, 'unknown'); report('send_failed', error); }
       finally { clearTimeout(timer); }
     }
     draining = false;
