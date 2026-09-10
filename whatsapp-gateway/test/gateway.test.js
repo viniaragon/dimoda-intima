@@ -4,13 +4,13 @@ import { randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createGateway, verifySelf } from '../src/gateway.js';
+import { createGateway, verifyRecipient } from '../src/gateway.js';
 const token = randomBytes(32).toString('base64url');
 const phone = '557591568274';
 async function fixture(t, options = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'wa-gateway-'));
   let sends = 0;
-  const adapter = { status: () => ({ state: 'ready', selfVerified: true }), qr: async () => null, send: async () => { sends++; }, ...options.adapter };
+  const adapter = { status: () => ({ state: 'ready', canSend: true }), qr: async () => null, send: async () => { sends++; }, ...options.adapter };
   const dbPath = join(dir, 'messages.sqlite');
   let gateway;
   async function start() { gateway = createGateway({ token, phone, dbPath, adapter, ...options, adapter }); await new Promise(r => gateway.server.listen(0, '127.0.0.1', r)); }
@@ -24,21 +24,41 @@ async function fixture(t, options = {}) {
   };
 }
 test('requires strong token', () => assert.throws(() => createGateway({ token: 'short' })));
-test('WhatsApp resolution preserves input digits and only accepts the linked account', async () => {
+test('WhatsApp resolution preserves recipient digits and accepts a different authenticated sender', async () => {
   let queried;
   const client = { getNumberId: async number => { queried = number; return { _serialized: 'canonical@c.us' }; }, info: { wid: { _serialized: 'canonical@c.us' } } };
-  assert.deepEqual(await verifySelf(client, '+55 75 9156-8274'), { state: 'ready', target: 'canonical@c.us' });
+  assert.deepEqual(await verifyRecipient(client, '+55 75 9156-8274'), { state: 'ready', target: 'canonical@c.us' });
   assert.equal(queried, phone);
   client.info.wid._serialized = 'other@c.us';
-  assert.equal((await verifySelf(client, phone)).state, 'account_mismatch');
+  assert.deepEqual(await verifyRecipient(client, phone), { state: 'ready', target: 'canonical@c.us' });
   client.getNumberId = async () => null;
-  assert.equal((await verifySelf(client, phone)).state, 'number_unresolved');
+  assert.equal((await verifyRecipient(client, phone)).state, 'number_unresolved');
+  client.info = undefined;
+  assert.equal((await verifyRecipient(client, phone)).state, 'not_authenticated');
 });
 test('health discloses no session; status and QR require bearer; URL token rejected', async t => {
   const f = await fixture(t);
   assert.deepEqual(await (await f.request('/health')).json(), { ok: true });
   for (const url of ['/status', '/qr', `/status?token=${token}`, '/messages']) assert.equal((await f.request(url)).status, 401);
   assert.equal((await f.request('/status', { headers: { Authorization: `Bearer ${token}` } })).status, 200);
+});
+test('different sender can send to resolved whitelist recipient, never another destination', async t => {
+  const sender = '5511999999999';
+  const verified = await verifyRecipient({
+    info: { wid: { _serialized: `${sender}@c.us` } },
+    getNumberId: async number => { assert.equal(number, phone); return { _serialized: `${phone}@c.us` }; },
+  }, phone);
+  const sent = [];
+  const f = await fixture(t, { adapter: {
+    status: () => ({ state: verified.state, canSend: verified.state === 'ready' }),
+    send: async message => sent.push({ target: verified.target, message }),
+  } });
+  assert.equal((await f.post()).status, 202);
+  assert.equal((await f.post()).status, 200);
+  assert.equal((await f.post('another-key', { phone: sender, message: 'blocked' })).status, 403);
+  assert.deepEqual(sent, [{ target: `${phone}@c.us`, message: 'Teste' }]);
+  const status = await (await f.request('/status', { headers: { Authorization: `Bearer ${token}` } })).json();
+  assert.deepEqual(status, { state: 'ready', canSend: true });
 });
 test('whitelist exact digits and message validation', async t => {
   const f = await fixture(t);
@@ -63,8 +83,8 @@ test('concurrent retries send once, conflict is rejected, persistence survives r
   assert.equal((await f.post()).status, 200);
   assert.equal(f.sends(), 1);
 });
-test('unverified account blocks all sending', async t => {
-  const f = await fixture(t, { adapter: { status: () => ({ state: 'account_mismatch', selfVerified: false }) } });
+test('unresolved recipient blocks all sending', async t => {
+  const f = await fixture(t, { adapter: { status: () => ({ state: 'number_unresolved', canSend: false }) } });
   assert.equal((await f.post()).status, 503);
   assert.equal(f.sends(), 0);
 });

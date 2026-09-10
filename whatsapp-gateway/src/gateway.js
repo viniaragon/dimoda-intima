@@ -9,10 +9,10 @@ export function normalizePhone(value) {
   return /^[1-9]\d{9,14}$/.test(digits) ? digits : null;
 }
 
-export async function verifySelf(client, phone) {
+export async function verifyRecipient(client, phone) {
+  if (!client.info?.wid?._serialized) return { state: 'not_authenticated', target: null };
   const resolved = await client.getNumberId(normalizePhone(phone));
   if (!resolved?._serialized) return { state: 'number_unresolved', target: null };
-  if (resolved._serialized !== client.info?.wid?._serialized) return { state: 'account_mismatch', target: null };
   return { state: 'ready', target: resolved._serialized };
 }
 
@@ -36,7 +36,7 @@ export function createGateway({ token, phone, dbPath, adapter, ui = '', timeoutM
     draining = true;
     while (queue.length && !closing) {
       const item = queue.shift();
-      if (!adapter.status().selfVerified) { set(item.key, 'failed'); continue; }
+      if (!adapter.status().canSend) { set(item.key, 'failed'); continue; }
       set(item.key, 'sending');
       const timer = setTimeout(() => set(item.key, 'unknown'), timeoutMs);
       try {
@@ -91,7 +91,7 @@ export function createGateway({ token, phone, dbPath, adapter, ui = '', timeoutM
     try {
       const existing = get(key);
       if (existing) return existing.hash === digest ? reply(code(existing), result(existing)) : reply(409, { error: 'idempotency_conflict' });
-      if (closing || !adapter.status().selfVerified) return reply(503, { error: 'not_ready' });
+      if (closing || !adapter.status().canSend) return reply(503, { error: 'not_ready' });
       if (queue.length >= 20 || db.prepare('SELECT COUNT(*) AS n FROM messages WHERE created > ?').get(Date.now() - 3600000).n >= maxPerHour) return reply(429, { error: 'rate_limited' });
       db.prepare('INSERT INTO messages VALUES (?, ?, ?, ?)').run(key, digest, 'pending', Date.now());
       queue.push({ key, message: body.message });

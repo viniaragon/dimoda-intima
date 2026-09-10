@@ -1,14 +1,14 @@
-# DiModa: gateway WhatsApp para avisos à própria conta
+# DiModa: gateway WhatsApp para avisos ao destinatário autorizado
 
-MVP privado na VPS Hostinger existente, sem assinatura ou servidor adicional. Node 24, Chromium e `whatsapp-web.js` **1.34.7**, versão estável confirmada no registro npm em 10/09/2026. Não há campanhas, endpoints de leitura de chats ou envio a terceiros. A biblioteca usa WhatsApp Web e sua sessão pode sincronizar dados internamente; o gateway não publica esses dados. Integração não oficial, sujeita a desconexão, mudanças do WhatsApp e bloqueio de conta. Sem garantia de disponibilidade ou entrega.
+MVP privado na VPS Hostinger existente, sem assinatura ou servidor adicional. Node 24, Chromium e `whatsapp-web.js` **1.34.7**, versão estável confirmada no registro npm em 10/09/2026. A conta remetente vinculada pelo QR pode ser diferente da conta destinatária autorizada. Não há campanhas, endpoints de leitura de chats ou envio fora da whitelist. A biblioteca usa WhatsApp Web e sua sessão pode sincronizar dados internamente; o gateway não publica esses dados. Integração não oficial, sujeita a desconexão, mudanças do WhatsApp e bloqueio de conta. Sem garantia de disponibilidade ou entrega.
 
 ## Configuração
 
 1. Copie `.env.example` para `.env` e gere o token com `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`. Guarde-o no gerenciador de segredos/Coolify. Não envie pelo frontend, URL, logs ou Git.
-2. Mantenha `ALLOWED_PHONE=557591568274`, exatamente o número informado (+55 75 9156-8274). Nenhum nono dígito é inserido. Após vincular, `getNumberId` resolve o identificador WhatsApp e ele deve ser idêntico à conta conectada. `number_unresolved` ou `account_mismatch` bloqueia envios: confirme o número com o usuário antes de mudar a configuração.
+2. Mantenha `ALLOWED_PHONE=557591568274`, exatamente o número informado (+55 75 9156-8274). Nenhum nono dígito é inserido. Após vincular a conta remetente, `getNumberId` resolve o identificador WhatsApp do destinatário configurado. Ele não precisa ser idêntico à conta conectada. `number_unresolved` bloqueia envios: confirme o número com o usuário antes de mudar a configuração.
 3. Execute `docker compose up -d --build` nesta pasta. A porta publicada é **127.0.0.1:3300**, nunca uma interface pública. O volume `whatsapp-data` preserva LocalAuth e SQLite; use **uma única réplica** e nunca dois processos no mesmo volume.
-4. Na máquina local, faça `ssh -L 3300:127.0.0.1:3300 usuario@VPS`; abra `http://127.0.0.1:3300`, informe o token e leia o QR pelo WhatsApp da própria conta. O token fica apenas na memória da página; fechar/recarregar exige login novamente. Sair da interface não desvincula a conta. QR e sessão não são registrados nos logs.
-5. Confirme `GET /status` autenticado retornando `state: ready, selfVerified: true`. Não foi feito pareamento nem envio real durante a implementação.
+4. Na máquina local, faça `ssh -L 3300:127.0.0.1:3300 usuario@VPS`; abra `http://127.0.0.1:3300`, informe o token e leia o QR pelo WhatsApp da sua conta remetente. Não é necessário informar o número remetente; o pareamento identifica a conta. O token fica apenas na memória da página; fechar/recarregar exige login novamente. Sair da interface não desvincula a conta. QR e sessão não são registrados nos logs.
+5. Confirme `GET /status` autenticado retornando `state: ready, canSend: true`. Não foi feito pareamento nem envio real durante a implementação.
 
 ## Coolify e recursos
 
@@ -17,6 +17,8 @@ Use esta pasta como contexto de build/Compose na VPS existente. Configure os doi
 O Compose limita a 1 CPU, 768 MB RAM e 256 processos; são limites iniciais, não uma promessa de consumo/funcionamento em qualquer VPS. Chromium precisa de memória durante o login. Verifique capacidade livre antes de iniciar e monitore `docker stats` e reinícios/OOM. Se insuficiente, interrompa o gateway e ajuste apenas dentro da capacidade disponível da VPS, sem contratar recursos. Falhas não devem impedir operações do site: o backend precisa manter seu próprio outbox e exibir falha/pendência. `/health` mede apenas processo HTTP vivo, não conexão WhatsApp; monitore `/status` com autenticação.
 
 ### Alternativa autorizada: painel HTTPS pelo Traefik
+
+Estado operacional informado pela Central em 10/09/2026 (infraestrutura não alterada por esta correção): a revisão c571436 foi publicada, com HTTPS atendido pelo Caddy legado antes do Traefik. `/opt/ecolink-legacy-redirect/Caddyfile` encaminha `whatsapp.dimodaintima.cloud` para `127.0.0.1:80`, usando Host `dimoda-whatsapp.internal`; `/data/coolify/proxy/dynamic/dimoda-whatsapp.yaml` encaminha para `http://dimoda-whatsapp:3000`. Backup: `Caddyfile.before-dimoda-whatsapp-20260910`; Caddy com admin desativado e executável `/tmp/caddy`. A Central validou configuração, reiniciou o proxy e verificou HTTP 200 do site/API/painel. Runtime: usuário node, capabilities removidas, 768 MB, 1 CPU, NoNewPrivs=1 nos descendentes e logs herdados de 10 MB × 3. O Coolify ignorou pids-limit: limite 256 aplicado por `docker update` precisa ser reaplicado após recriação. Shm ainda precisa ser conferido. Esta revisão do código passa a permitir remetente diferente; o pareamento/entrega devem ser validados após sua publicação.
 
 No Coolify, use opções customizadas `--pids-limit=256 --shm-size=128m --cap-drop=ALL`. O parser do painel trunca valores com hífen (issue coollabsio/coolify#8173), incluindo `no-new-privileges` e opções `max-size` de logs. A imagem aplica `setpriv --no-new-privs` no entrypoint antes de iniciar Node/Chromium; a validação local confirmou `NoNewPrivs: 1`. A rotação de logs do Compose continua disponível no modo Compose; no modo Dockerfile confira a política de logs do daemon, pois não é aplicada por essas opções customizadas.
 
@@ -31,7 +33,7 @@ O Chromium roda como usuário `node`, mas com `--no-sandbox` para compatibilidad
 Todos os endpoints de dados exigem `Authorization: Bearer <GATEWAY_TOKEN>`. Sem cookies ou CORS. A página de login e seu script são públicos, mas não contêm QR, token ou sessão. Respostas têm `Cache-Control: no-store`.
 
 - `GET /health`: público, `200 {"ok":true}`.
-- `GET /status`: `200 {"state":"ready","selfVerified":true}`; estados possíveis: starting, qr, qr_error, authenticated, verifying, ready, number_unresolved, account_mismatch, verification_failed, auth_failure, disconnected, initialization_failed, stopping. Não expõe número/ID da conta.
+- `GET /status`: `200 {"state":"ready","canSend":true}`; estados possíveis: starting, qr, qr_error, authenticated, verifying, ready, number_unresolved, not_authenticated, verification_failed, auth_failure, disconnected, initialization_failed, stopping. Ready/canSend exige evento ready do cliente autenticado e destinatário resolvido. Não expõe número/ID da conta.
 - `GET /qr`: autenticado, `200 {"qr":"data:image/png;base64,..."}` ou 404 se indisponível.
 - `POST /messages`: JSON `{"phone":"557591568274","message":"Seu aviso"}` e `Idempotency-Key` único por aviso lógico (8–128 caracteres `[A-Za-z0-9._:-]`). São aceitos espaços, parênteses, hífen e + inicial no telefone, mas os dígitos precisam coincidir com a whitelist configurada. Texto de 1–4096 unidades UTF-16, sem mensagem vazia; corpo máximo 24 KiB.
 
@@ -40,7 +42,7 @@ Todos os endpoints de dados exigem `Authorization: Bearer <GATEWAY_TOKEN>`. Sem 
 | 202 | `{status:"pending",idempotencyKey}`: aceito e persistido, ainda não confirmado. |
 | 200 | `{status:"sent",idempotencyKey}`: `sendMessage` retornou mensagem identificada. Não significa entregue ou lida. |
 | 202 | `{status:"unknown",idempotencyKey}`: timeout, exceção ou reinício após aceitação. Pode ter sido enviado. |
-| 503 | `{status:"failed",idempotencyKey}`: item aceito anteriormente, mas conta deixou de estar verificada antes de chamar envio; nenhum envio desse item foi iniciado. Terminal para esta chave. |
+| 503 | `{status:"failed",idempotencyKey}`: item aceito anteriormente, mas o gateway deixou de estar pronto para enviar antes de chamar envio; nenhum envio desse item foi iniciado. Terminal para esta chave. |
 | 503 | `{error:"not_ready"}`: rejeitado antes de aceitar, sem gravar chave. Pode repetir mesma chave/body quando conectado. |
 | 503 | `{error:"storage_unavailable"}`: persistência indisponível; reconcilie repetindo mesma chave/body. |
 | 409 | `{error:"idempotency_conflict"}`: mesma chave, outro conteúdo/destino. |
@@ -53,7 +55,7 @@ Há somente um envio em execução. Após 30 segundos ele fica unknown, mas o ga
 
 ## Verificação
 
-`node --test` roda 10 testes HTTP/SQLite sem WhatsApp, Chromium ou dependências npm. Para produção use `npm ci` e `npm start`, preferencialmente via Docker. Nenhum teste envia mensagens. Validação local em 10/09/2026: testes passaram, Compose válido, build Docker concluído e smoke test Chromium/Puppeteer/SQLite/importação whatsapp-web.js passou em container sem rede com 768 MB/1 CPU/256 PIDs. O smoke test abriu somente conteúdo HTML local, sem inicializar cliente WhatsApp. Pareamento, conectividade e entrega real ainda precisam ser validados na VPS antes de ativar avisos.
+`node --test` roda 11 testes HTTP/SQLite sem WhatsApp, Chromium ou dependências npm. Para produção use `npm ci` e `npm start`, preferencialmente via Docker. Nenhum teste envia mensagens. Validação local em 10/09/2026: testes passaram, Compose válido, build Docker concluído e smoke test Chromium/Puppeteer/SQLite/importação whatsapp-web.js passou em container sem rede com 768 MB/1 CPU/256 PIDs. O smoke test abriu somente conteúdo HTML local, sem inicializar cliente WhatsApp. Pareamento, conectividade e entrega real ainda precisam ser validados na VPS antes de ativar avisos.
 
 Auditoria npm em 10/09/2026: 5 ocorrências high na cadeia `whatsapp-web.js → puppeteer → @puppeteer/browsers → extract-zip`, originadas em path traversal ao extrair ZIP ([aviso oficial](https://github.com/advisories/GHSA-7pqw-9j4j-h8q3)). O pacote afetado não tem versão corrigida segundo o aviso. Mantivemos o Puppeteer fixado pelo upstream para não presumir compatibilidade com um override major. O Docker desativa download de navegador (`PUPPETEER_SKIP_DOWNLOAD=true`) e usa Chromium do Debian; não há endpoint de upload/extração. Isso reduz a exposição ao caminho afetado, mas **a auditoria não está limpa**. Reavalie upstream e lockfile antes de publicar; não rode `npm audit fix --force` sem validar compatibilidade.
 
