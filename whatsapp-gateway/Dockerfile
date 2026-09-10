@@ -7,5 +7,5 @@ RUN npm ci --omit=dev && mkdir -p /app/data && chown -R node:node /app
 COPY --chown=node:node src ./src
 USER node
 EXPOSE 3000
-ENTRYPOINT ["/usr/bin/tini", "--"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/bin/setpriv", "--no-new-privs"]
 CMD ["node", "src/main.js"]
