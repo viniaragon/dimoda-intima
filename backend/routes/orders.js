@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import db from '../database-firebase.js'
 import { authMiddleware, adminMiddleware } from '../middleware/auth.js'
-import { sendOrderEmails } from '../services/emailNotification.js'
+import { notifyOrder } from '../services/orderNotifications.js'
 import {
     canonicalizeOrderItems,
     sendCommerceError
@@ -79,11 +79,10 @@ router.post('/', async (req, res) => {
             total: canonical.total
         })
 
-        // Enviar os emails se o pagamento NÃO for cartão (cartão envia apenas após confirmação no Stripe webhook)
+        // Cartão é notificado somente após confirmação; PIX/dinheiro ao registrar.
         if (order.payment_method !== 'card') {
-            sendOrderEmails(order, false)
-                .then(result => console.log('📧 Email notifications resolved.'))
-                .catch(err => console.error('Error sending email notification:', err))
+            void notifyOrder(order, false)
+                .catch(() => console.error('Order notification dispatch failed'))
         }
 
         res.status(201).json(order)

@@ -1,27 +1,19 @@
-// WhatsApp notification service
-// Uses CallMeBot API for automatic WhatsApp notifications
+import { notificationKey, postNotificationJson } from './notificationTransport.js'
 
-// Your WhatsApp number (with country code, no spaces or special chars)
-const ADMIN_WHATSAPP = '5575983185141'
-
-// CallMeBot API Key - Get yours free at https://www.callmebot.com/blog/free-api-whatsapp-messages/
-// Steps: 1. Add +34 644 71 79 36 to your contacts
-//        2. Send "I allow callmebot to send me messages" to them on WhatsApp
-//        3. Wait for confirmation with your API key
-const CALLMEBOT_API_KEY = process.env.CALLMEBOT_API_KEY || ''
+const ADMIN_WHATSAPP = process.env.ADMIN_WHATSAPP || ''
 
 /**
  * Formats an order notification message for WhatsApp
  * @param {Object} order - The order data
  * @returns {string} - Formatted message
  */
-export function formatOrderMessage(order) {
+export function formatOrderMessage(order, isPaid = false) {
     const itemsList = order.items
         .map(item => `• ${item.name || 'Produto'} x${item.quantity} - R$ ${(item.price * item.quantity).toFixed(2)}`)
         .join('\n')
 
     const message = `
-🛒 *NOVO PEDIDO!*
+${isPaid ? '✅ *PAGAMENTO CONFIRMADO!*' : '🛒 *NOVO PEDIDO!*'}
 
 📋 Pedido: #${order.id}
 
@@ -54,46 +46,49 @@ export function generateWhatsAppUrl(phone, message) {
     return `https://wa.me/${phone}?text=${encodedMessage}`
 }
 
-/**
- * Sends a notification to admin WhatsApp via CallMeBot API
- * @param {Object} order - The order data
- */
-export async function notifyAdminWhatsApp(order) {
-    const message = formatOrderMessage(order)
-
-    console.log('\n📱 ==================== NOVO PEDIDO ====================')
-    console.log(message)
-    console.log('=======================================================\n')
-
-    // If CallMeBot API key is configured, send actual WhatsApp message
-    if (CALLMEBOT_API_KEY) {
-        try {
-            const callMeBotUrl = `https://api.callmebot.com/whatsapp.php?phone=${ADMIN_WHATSAPP}&text=${encodeURIComponent(message)}&apikey=${CALLMEBOT_API_KEY}`
-
-            const response = await fetch(callMeBotUrl)
-            const result = await response.text()
-
-            console.log('📱 CallMeBot response:', result)
-            return { success: true, method: 'callmebot', result }
-        } catch (error) {
-            console.error('❌ CallMeBot error:', error.message)
-            // Fall through to manual URL
+/** Optional server-to-server adapter. Destination is never read from an order/request. */
+export async function notifyAdminWhatsApp(order, isPaid = false, { env = process.env, fetchImpl = globalThis.fetch } = {}) {
+    if (!env.WHATSAPP_GATEWAY_URL?.trim()) return { success: false, skipped: true, reason: 'WHATSAPP_NOT_CONFIGURED' }
+    try {
+        let url
+        try { url = new URL(env.WHATSAPP_GATEWAY_URL) } catch { throw new Error('INVALID_WHATSAPP_GATEWAY_URL') }
+        if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash ||
+            (url.protocol !== 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) &&
+                env.WHATSAPP_GATEWAY_ALLOW_INSECURE_HTTP !== 'true')) {
+            throw new Error('INVALID_WHATSAPP_GATEWAY_URL')
         }
-    } else {
-        console.log('💡 Para receber notificações automáticas no WhatsApp, configure a variável CALLMEBOT_API_KEY')
-        console.log('   Instruções: https://www.callmebot.com/blog/free-api-whatsapp-messages/')
-    }
-
-    // Generate manual URL as fallback
-    const manualUrl = generateWhatsAppUrl(ADMIN_WHATSAPP, message)
-    console.log('📱 Link manual WhatsApp:', manualUrl)
-
-    return { success: true, method: 'console', url: manualUrl }
+        const destination = (env.ADMIN_WHATSAPP || '').replace(/[+\s()-]/g, '')
+        if (!/^[1-9]\d{9,14}$/.test(destination)) throw new Error('INVALID_ADMIN_WHATSAPP')
+        if (!env.WHATSAPP_GATEWAY_TOKEN?.trim()) throw new Error('WHATSAPP_TOKEN_REQUIRED')
+        const key = notificationKey(order.id, isPaid, 'whatsapp-admin')
+        url.pathname = `${url.pathname.replace(/\/$/, '')}/messages`
+        const message = formatOrderMessage(order, isPaid)
+        if (message.length > 4096) throw new Error('WHATSAPP_MESSAGE_TOO_LONG')
+        const configuredTimeout = Number(env.NOTIFICATION_TIMEOUT_MS)
+        const duration = Number.isInteger(configuredTimeout) && configuredTimeout > 0
+            ? Math.min(configuredTimeout, 30000) : 8000
+        const deadline = Date.now() + duration
+        // Repeating the exact key/body queries a queued send; it must never create another send.
+        while (Date.now() < deadline) {
+            const { status, data } = await postNotificationJson(url.href, {
+                token: env.WHATSAPP_GATEWAY_TOKEN, key,
+                payload: { phone: destination, message },
+                timeoutMs: Math.max(1, deadline - Date.now()), responseEnvelope: true, fetchImpl
+            })
+            if (status === 200 && data?.status === 'sent' && data.idempotencyKey === key) {
+                return { success: true, method: 'service', status: 'sent', id: key }
+            }
+            if (status === 202 && data?.status === 'unknown') {
+                return { success: false, method: 'service', status: 'unknown', error: 'WHATSAPP_DELIVERY_UNCONFIRMED' }
+            }
+            if (status !== 202 || data?.status !== 'pending' || data.idempotencyKey !== key) {
+                throw new Error('INVALID_PROVIDER_RESPONSE')
+            }
+            const remaining = deadline - Date.now()
+            if (remaining > 0) await new Promise(resolve => setTimeout(resolve, Math.min(500, remaining)))
+        }
+        return { success: false, method: 'service', status: 'pending', error: 'WHATSAPP_DELIVERY_UNCONFIRMED' }
+    } catch (error) { return { success: false, error: error.message } }
 }
 
-export default {
-    formatOrderMessage,
-    generateWhatsAppUrl,
-    notifyAdminWhatsApp,
-    ADMIN_WHATSAPP
-}
+export default { formatOrderMessage, generateWhatsAppUrl, notifyAdminWhatsApp, ADMIN_WHATSAPP }

@@ -173,7 +173,8 @@ export async function confirmOrderPayment(id, paymentData) {
         if (!snapshot.exists) return null
 
         const order = { id: snapshot.id, ...snapshot.data() }
-        const alreadyConfirmed = order.payment_status === 'paid' && order.status === 'confirmed'
+        // A replay must not regress shipped/delivered/cancelled orders or notify twice.
+        if (order.payment_status === 'paid') return { order, changed: false }
 
         transaction.update(orderRef, {
             payment_id: paymentData.payment_id,
@@ -182,7 +183,7 @@ export async function confirmOrderPayment(id, paymentData) {
             updated_at: admin.firestore.FieldValue.serverTimestamp()
         })
 
-        return { order, changed: !alreadyConfirmed }
+        return { order, changed: true }
     })
 }
 

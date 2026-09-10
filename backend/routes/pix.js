@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import Stripe from 'stripe'
 import db from '../database-firebase.js'
-import { sendOrderEmails } from '../services/emailNotification.js'
+import { notifyOrder } from '../services/orderNotifications.js'
 import {
     CommerceValidationError,
     getValidatedOrderForPayment,
@@ -48,8 +48,8 @@ async function reconcilePaidStripeSession(order, session) {
     }
 
     if (result.changed) {
-        sendOrderEmails({ ...result.order, status: 'confirmed', payment_status: 'paid' }, true)
-            .catch(error => console.error('Erro ao enviar email de confirmação Stripe', error))
+        await notifyOrder({ ...result.order, status: 'confirmed', payment_status: 'paid' }, true)
+            .catch(() => console.error('Order notification dispatch failed'))
     }
 
     return result.changed

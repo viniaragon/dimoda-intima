@@ -1,10 +1,25 @@
 // Email notification service using Resend API
 // Resend is free and works in cloud environments where SMTP is blocked
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY || ''
+import { notificationKey, postNotificationJson } from './notificationTransport.js'
+
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'dimodaintima@gmail.com'
-const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'Di Moda Íntima <onboarding@resend.dev>'
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
+
+export function getAdminEmails(env = process.env) {
+    const configured = env.ADMIN_EMAILS?.trim() || env.ADMIN_EMAIL?.trim() || 'dimodaintima@gmail.com'
+    const recipients = [...new Set(configured.split(/[,;\s]+/).filter(Boolean).map(email => email.toLowerCase()))]
+    if (!recipients.length || recipients.some(email => !isValidEmail(email))) throw new Error('INVALID_ADMIN_EMAILS')
+    return recipients
+}
+
+function isValidEmail(email) {
+    return typeof email === 'string' && /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)
+}
+
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]))
+}
 
 /**
  * Formats an order notification email
@@ -14,6 +29,10 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
  * @returns {Object} - Email subject and HTML content
  */
 export function formatOrderEmail(order, isPaid = false, isCustomer = false) {
+    order = { ...order, ...Object.fromEntries(
+        ['id', 'customer_name', 'customer_phone', 'customer_email', 'address', 'notes', 'payment_method']
+            .map(key => [key, escapeHtml(order[key])])
+    ), items: order.items.map(item => ({ ...item, name: escapeHtml(item.name) })) }
     const itemsHtml = order.items
         .map(item => `
             <tr>
@@ -33,7 +52,7 @@ export function formatOrderEmail(order, isPaid = false, isCustomer = false) {
     if (isPaid) {
         statusMessage = isCustomer 
             ? "Ótima notícia! Seu pagamento foi aprovado e o pedido já está sendo preparado para envio."
-            : "O pagamento deste pedido foi confirmado (Cartão de Crédito).";
+            : "O pagamento deste pedido foi confirmado.";
     } else {
         if (order.payment_method === 'pix') {
             statusMessage = isCustomer 
@@ -131,7 +150,7 @@ export function formatOrderEmail(order, isPaid = false, isCustomer = false) {
             
             <div class="footer">
                 <p style="margin: 0; color: #666;">
-                    📅 ${new Date().toLocaleString('pt-BR')}<br>
+                    📅 ${typeof order.created_at === 'string' ? escapeHtml(order.created_at) : ''}<br>
                     Di' Moda Íntima
                 </p>
             </div>
@@ -148,61 +167,27 @@ export function formatOrderEmail(order, isPaid = false, isCustomer = false) {
  * @param {Object} order - The order data
  * @param {boolean} isPaid - Whether the order is paid (to change email phrasing)
  */
-export async function sendOrderEmails(order, isPaid = false) {
-    if (!RESEND_API_KEY) {
-        console.log('💡 Para receber emails, configure RESEND_API_KEY no Railway')
-        return { success: true, method: 'console' }
-    }
-
-    try {
-        const promises = []
-
-        // Email para o Admin
-        const adminData = formatOrderEmail(order, isPaid, false)
-        promises.push(
-            fetch('https://api.resend.com/emails', {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    from: FROM_EMAIL,
-                    to: [ADMIN_EMAIL],
-                    subject: adminData.subject,
-                    html: adminData.html
-                })
+export async function sendOrderEmails(order, isPaid = false, { env = process.env, fetchImpl = globalThis.fetch } = {}) {
+    if (!env.RESEND_API_KEY?.trim()) return { success: false, skipped: true, reason: 'RESEND_NOT_CONFIGURED' }
+    const jobs = []
+    try { jobs.push({ audience: 'admin', to: getAdminEmails(env) }) }
+    catch { jobs.push({ audience: 'admin', error: 'INVALID_ADMIN_EMAILS' }) }
+    if (isValidEmail(order.customer_email)) jobs.push({ audience: 'customer', to: [order.customer_email] })
+    const results = await Promise.all(jobs.map(async job => {
+        if (job.error) return { audience: job.audience, success: false, error: job.error }
+        try {
+            const { subject, html } = formatOrderEmail(order, isPaid, job.audience === 'customer')
+            const data = await postNotificationJson('https://api.resend.com/emails', {
+                token: env.RESEND_API_KEY,
+                key: notificationKey(order.id, isPaid, `email-${job.audience}`),
+                payload: { from: env.RESEND_FROM_EMAIL || 'Di Moda Íntima <onboarding@resend.dev>', to: job.to, subject, html },
+                timeoutMs: env.NOTIFICATION_TIMEOUT_MS, fetchImpl
             })
-        )
-
-        // Email para o Cliente (se houver e-mail válido no pedido)
-        if (order.customer_email && order.customer_email.includes('@')) {
-            const customerData = formatOrderEmail(order, isPaid, true)
-            promises.push(
-                fetch('https://api.resend.com/emails', {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        from: FROM_EMAIL,
-                        to: [order.customer_email],
-                        subject: customerData.subject,
-                        html: customerData.html
-                    })
-                })
-            )
-        }
-
-        const responses = await Promise.all(promises)
-        const checkResults = await Promise.all(responses.map(res => res.json()))
-        
-        console.log('📧 Emails enviados:', checkResults.map(r => r.id || r.message))
-        return { success: true, results: checkResults }
-
-    } catch (error) {
-        console.error('❌ Erro ao enviar emails:', error.message)
-        return { success: false, error: error.message }
-    }
+            if (typeof data?.id !== 'string' || !data.id.trim()) throw new Error('INVALID_PROVIDER_RESPONSE')
+            return { audience: job.audience, success: true, status: 'accepted', id: data.id }
+        } catch (error) { return { audience: job.audience, success: false, error: error.message } }
+    }))
+    return { success: results.every(result => result.success), results }
 }
 
-export default {
-    formatOrderEmail,
-    sendOrderEmails,
-    ADMIN_EMAIL
-}
+export default { formatOrderEmail, sendOrderEmails, ADMIN_EMAIL }
